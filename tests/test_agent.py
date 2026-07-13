@@ -10,8 +10,9 @@ def main():
     print("\nChoose an AI Agent:")
     print("1. Research Agent")
     print("2. Planning Agent")
+    print("3. Coordination Agent")
 
-    choice = input("\nEnter your choice (1 or 2): ")
+    choice = input("\nEnter your choice (1 or 2 or 3): ")
 
     if choice == "1":
         question = input("\nEnter your research question: ")
@@ -27,6 +28,15 @@ def main():
         print("\nPlanning Agent Response:\n")
         print(answer)
 
+    elif choice == "3":
+        task = input("\nEnter your task: ")
+
+        from agents.coordination_agent import coordination_agent
+
+        answer = coordination_agent(task)
+
+        print(answer)    
+  
     else:
         print("Invalid Choice")
 
