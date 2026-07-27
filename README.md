@@ -1,48 +1,81 @@
 # AI Agent Coordination & Decision Engine
 
-## Project Description
+## Project Overview
 
-This project is developed as part of the Infosys Springboard Virtual Internship 7.0.
+The AI Agent Coordination & Decision Engine is an AI-powered business decision-support system developed as part of the Infosys Springboard Virtual Internship 7.0.
 
-The objective of this project is to build a multi-agent AI system where different AI agents work together to solve user tasks using Google's Gemini LLM.
+The project focuses on helping e-commerce businesses evaluate product launch decisions through a unified AI decision engine.
 
-## Milestone 1 Completed
+Instead of exposing separate agents to the user, the system accepts a single business problem and internally combines multiple capabilities such as research, planning, coordination, tool usage, and final decision-making to produce a structured business recommendation.
 
-### Environment Setup
-- Python Virtual Environment
-- LangChain Installation
-- Google Gemini API Integration
-- Git & GitHub Setup
+---
 
-### AI Agents Developed
-- Research Agent
-- Planning Agent
-- Coordination Agent
+## Business Niche
 
-### Prompt Engineering
-- Research Prompt
-- Planning Prompt
+### E-Commerce Product Launch Decision Support
 
-### Testing
-- Basic command-line interface to test all agents.
+The system is designed to support businesses in evaluating whether a new product should be launched.
 
-## Project Structure
+For example:
 
-- `agents/` – AI Agents
-- `prompts/` – Prompt Templates
-- `tests/` – Testing Interface
-- `memory/` – Placeholder for future memory implementation
-- `tools/` – Placeholder for future tool integration
+> Should we launch an eco-friendly water bottle for college students?
 
-## Technologies Used
+The system analyzes the business problem and provides a structured decision report based on:
 
-- Python
-- LangChain
-- Google Gemini API
-- Git
-- GitHub
+- Business objective
+- Research and analysis
+- Market opportunity
+- Risks and challenges
+- Recommended action plan
+- Final business decision
 
-## Author
+---
 
-Shobika P
-Infosys Springboard Virtual Internship 7.0
+## Objective
+
+The primary objective of this project is to develop an AI-powered decision engine that can:
+
+1. Understand a business problem.
+2. Analyze the problem using research-oriented reasoning.
+3. Identify business opportunities and risks.
+4. Create a logical action plan.
+5. Use tools when calculations or structured operations are required.
+6. Coordinate the generated insights.
+7. Produce a clear and actionable final business recommendation.
+
+---
+
+## System Architecture
+
+The system follows a centralized decision-engine architecture.
+
+```text
+                    User
+                     │
+                     ▼
+           Business Decision Problem
+                     │
+                     ▼
+        ┌──────────────────────────┐
+        │  Business Decision Engine │
+        └──────────────────────────┘
+                     │
+     ┌───────────────┼────────────────┐
+     ▼               ▼                ▼
+  Research        Planning       Coordination
+  Capability      Capability      Capability
+     │               │                │
+     └───────────────┼────────────────┘
+                     ▼
+              Tool Integration
+                     │
+                     ▼
+              Final Decision
+                     │
+                     ▼
+          Business Recommendation
+
+
+Author
+SHOBIKA P
+          
