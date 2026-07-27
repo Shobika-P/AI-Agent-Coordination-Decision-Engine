@@ -1,47 +1,33 @@
-from agents.research_agent import research_agent
-from agents.planning_agent import planning_agent
+from agents.business_decision_engine import business_decision_engine
 
 
 def main():
-    print("=" * 50)
-    print(" AI Agent Coordination & Decision Engine ")
-    print("=" * 50)
 
-    print("\nChoose an AI Agent:")
-    print("1. Research Agent")
-    print("2. Planning Agent")
-    print("3. Coordination Agent")
+    print()
+    print("=" * 60)
+    print("        AI BUSINESS DECISION ENGINE")
+    print("        E-COMMERCE PRODUCT LAUNCH SUPPORT")
+    print("=" * 60)
 
-    choice = input("\nEnter your choice (1 or 2 or 3): ")
+    task = input("\nEnter your business decision problem:\n> ")
 
-    if choice == "1":
-        question = input("\nEnter your research question: ")
-        answer = research_agent(question)
+    print("\nProcessing business decision...")
+    print("Please wait...\n")
 
-        print("\nResearch Agent Response:\n")
-        print(answer)
+    result = business_decision_engine(task)
 
-    elif choice == "2":
-        task = input("\nEnter your planning task: ")
-        answer = planning_agent(task)
+    print("=" * 60)
+    print("              BUSINESS DECISION REPORT")
+    print("=" * 60)
+    print()
 
-        print("\nPlanning Agent Response:\n")
-        print(answer)
+    print(result)
 
-    elif choice == "3":
-        task = input("\nEnter your task: ")
-
-        from agents.coordination_agent import coordination_agent
-
-        answer = coordination_agent(task)
-
-        print(answer)    
-  
-    else:
-        print("Invalid Choice")
+    print()
+    print("=" * 60)
+    print("                 END OF REPORT")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
     main()
-
-    
