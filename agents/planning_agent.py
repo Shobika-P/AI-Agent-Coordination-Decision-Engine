@@ -1,26 +1,19 @@
-import os
-
-from dotenv import load_dotenv
-from google import genai
-
+from config import llm
 from prompts.planning_prompt import PLANNING_PROMPT
 
-load_dotenv()
-
-client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
 
-def planning_agent(task):
+def planning_agent(task, research_result):
     full_prompt = f"""
 {PLANNING_PROMPT}
 
-User Request:
+Business Problem:
 {task}
-"""
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=full_prompt
-    )
+Research Findings:
+{research_result}
+""" 
 
-    return response.text
+    response = llm.invoke(full_prompt)
+
+    return response.content

@@ -42,6 +42,14 @@ The primary objective of this project is to develop an AI-powered decision engin
 5. Use tools when calculations or structured operations are required.
 6. Coordinate the generated insights.
 7. Produce a clear and actionable final business recommendation.
+Integrated Business Decision Engine
+
+Business Tools
+• Profit Calculator
+• Market Risk Analyzer
+
+Tool Manager
+Automatically selects the appropriate tool based on the business request.
 
 ---
 
@@ -76,6 +84,4 @@ The system follows a centralized decision-engine architecture.
           Business Recommendation
 
 
-Author
-SHOBIKA P
-          
+
