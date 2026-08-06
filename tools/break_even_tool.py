@@ -17,12 +17,16 @@ def calculate_break_even(fixed_cost, selling_price, variable_cost):
     # Formula
     break_even_units = fixed_cost / (selling_price - variable_cost)
 
-    return f"""
-BREAK-EVEN ANALYSIS
+    return {
 
-Fixed Cost            : ₹{fixed_cost}
-Selling Price / Unit  : ₹{selling_price}
-Variable Cost / Unit  : ₹{variable_cost}
+    "tool":"Break Even Tool",
 
-Break-Even Units      : {break_even_units:.2f}
-"""
+    "fixed_cost": fixed_cost,
+
+    "selling_price": selling_price,
+
+    "variable_cost": variable_cost,
+
+    "break_even_units": break_even
+
+}

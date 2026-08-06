@@ -24,7 +24,24 @@ def execute_tool(task):
     )
 
     elif selected_tool == "market_risk":
-        return market_risk(task)
+        result = market_risk(task)
+
+        print("\nTool Output")
+        print("-" * 60)
+        print(f"Tool Name : {result['tool']}")
+        print(f"Risk Level : {result['risk_level']}")
+
+        print("\nObservations")
+        print("-" * 20)
+
+        for observation in result["observations"]:
+            print(f"• {observation}")
+
+        print("\nRecommendation")
+        print("-" * 20)
+        print(result["recommendation"])
+
+        return result
 
     else:
         return None

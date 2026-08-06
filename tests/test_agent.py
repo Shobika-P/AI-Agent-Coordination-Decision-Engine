@@ -6,7 +6,7 @@ def main():
     print()
     print("=" * 60)
     print("        AI BUSINESS DECISION ENGINE")
-    print("        E-COMMERCE PRODUCT LAUNCH SUPPORT")
+    print("        MULTI-AGENT BUSINESS DECISION ENGINE")
     print("=" * 60)
 
     task = input("\nEnter your business decision problem:\n> ")

@@ -1,29 +1,10 @@
-def calculate_roi(investment, expected_return):
-    """
-    Calculate Return on Investment (ROI).
-    """
+def calculate_roi(investment, returns):
 
-    # Validation
-    if investment <= 0:
-        return {
-            "error": "Investment must be greater than zero."
-        }
+    roi = ((returns - investment) / investment) * 100
 
-    # ROI Formula
-    roi = ((expected_return - investment) / investment) * 100
-
-    # Status
-    if roi > 0:
-        status = "GOOD INVESTMENT"
-    elif roi < 0:
-        status = "NOT PROFITABLE"
-    else:
-        status = "BREAK EVEN"
-
-    return f"""
-ROI ANALYSIS
-
-Investment Amount : ₹{investment}
-Revenue Generated : ₹{revenue}
-ROI               : {roi:.2f}%
-""" 
+    return {
+        "tool": "ROI Tool",
+        "investment": investment,
+        "returns": returns,
+        "roi": f"{round(roi,2)}%"
+    }

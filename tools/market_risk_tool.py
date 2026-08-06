@@ -1,22 +1,23 @@
 def market_risk(task):
 
-    return f"""
-MARKET RISK ANALYSIS
+    return {
+        "tool": "Market Risk Tool",
 
-Business Problem
-{task}
+        "risk_level": "Medium",
 
-Risk Level
-Medium
+        "observations": [
 
-Observations
+            "Strong competition",
 
-1. Strong competition exists.
-2. Customers may be price sensitive.
-3. Product differentiation is important.
-4. Marketing investment will be required.
+            "Customers are price sensitive",
 
-Recommendation
+            "Product differentiation required",
 
-Proceed with proper market validation before launching the product.
-"""
+            "Marketing investment required"
+
+        ],
+
+        "recommendation":
+
+        "Proceed with market validation before launch."
+    }

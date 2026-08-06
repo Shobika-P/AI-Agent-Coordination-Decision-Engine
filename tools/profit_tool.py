@@ -1,30 +1,13 @@
-def calculate_profit(selling_price, production_cost):
-    """
-    Calculate profit or loss for a product.
-    """
+def calculate_profit(revenue, cost):
 
-    # Input Validation
-    if selling_price < 0 or production_cost < 0:
-        return {
-            "error": "Selling price and production cost cannot be negative."
-        }
+    profit = revenue - cost
 
-    # Calculate Profit
-    profit = selling_price - production_cost
+    margin = round((profit / revenue) * 100, 2)
 
-    # Decide Status
-    if profit > 0:
-        status = "PROFIT"
-    elif profit < 0:
-        status = "LOSS"
-    else:
-        status = "NO PROFIT NO LOSS"
-
-    # Return Result
-    return f"""
-PROFIT ANALYSIS
-
-Selling Price      : ₹{price}
-Production Cost    : ₹{cost}
-Profit Per Unit    : ₹{profit}
-"""
+    return {
+        "tool": "Profit Tool",
+        "revenue": revenue,
+        "cost": cost,
+        "profit": profit,
+        "profit_margin": f"{margin}%"
+    }

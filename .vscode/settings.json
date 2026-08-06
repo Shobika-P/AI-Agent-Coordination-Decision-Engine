@@ -1,3 +1,4 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:system"
+    "python.defaultInterpreterPath": "C:/Users/shobi/OneDrive/Desktop/AI_AGENT/AI-Agent-Coordination-Decision-Engine/venv/Scripts/python.exe",
+    "python.terminal.activateEnvironment": true
 }

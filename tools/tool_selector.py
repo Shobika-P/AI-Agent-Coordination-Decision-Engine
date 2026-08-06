@@ -1,4 +1,5 @@
 from config import llm
+
 def select_tool(task):
 
     prompt = f"""
@@ -23,13 +24,9 @@ Rules
 Reply ONLY one of the following.
 
 profit
-
 roi
-
 break_even
-
 market_risk
-
 none
 
 Business Problem
@@ -38,5 +35,12 @@ Business Problem
 """
 
     response = llm.invoke(prompt)
+    
 
-    return response.content.strip().lower()
+    if isinstance(response.content, str):
+        return response.content.strip().lower()
+
+    elif isinstance(response.content, list):
+        return response.content[0].get("text", "").strip().lower()
+
+    return "none"
