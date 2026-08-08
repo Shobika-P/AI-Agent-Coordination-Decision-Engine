@@ -1,38 +1,98 @@
-import os
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
-from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
+from agents.business_decision_engine import business_decision_engine
+
+app = Flask(__name__)
+CORS(app)
 
 
-def main():
-    
-    load_dotenv()
+@app.route("/")
+def home():
+    return "AI Business Decision Engine API is Running!"
 
-    api_key = os.getenv("GOOGLE_API_KEY")
 
-    
+@app.route("/generate-report", methods=["POST"])
+def generate_report():
 
-    if not api_key:
-        print("ERROR: GOOGLE_API_KEY not found.")
-        return
+    data = request.get_json()
 
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-flash-latest",
-        google_api_key=api_key,
-        temperature=0.3,
-    )
+    task = data.get("task")
 
-    print("=" * 60)
-    print("AI Agent Coordination & Decision Engine")
-    print("=" * 60)
+    if not task:
+        return jsonify({
+            "error": "Task is required."
+        }), 400
 
-    question = input("\nAsk Gemini anything: ")
+    report = business_decision_engine(task)
 
-    response = llm.invoke(question)
+    return jsonify({
+        "report": report
+    })
 
-    print("\nGemini:\n")
-    print(response.content)
+@app.route("/follow-up", methods=["POST"])
+def follow_up():
+
+    data = request.get_json()
+
+    task = data.get("task")
+    report = data.get("report")
+    question = data.get("question")
+
+    if not task or not report or not question:
+        return jsonify({
+            "error": "Task, report and question are required."
+        }), 400
+
+    prompt = f"""
+You are an AI Business Decision Support Assistant.
+
+The user previously asked this business decision question:
+
+BUSINESS QUESTION:
+{task}
+
+The AI generated the following business decision report:
+
+BUSINESS REPORT:
+{report}
+
+The user now has a follow-up question:
+
+FOLLOW-UP QUESTION:
+{question}
+
+Answer the follow-up question using the business report as the primary context.
+
+Rules:
+- Stay focused on the user's business decision.
+- Do not generate an entirely new report unless specifically requested.
+- Use information from the existing report.
+- Give practical and clear business advice.
+- If the question asks for clarification, explain the relevant part of the report.
+- If the question asks for recommendations, provide actionable recommendations.
+"""
+
+    try:
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+
+        answer = response.text
+
+        return jsonify({
+            "answer": answer
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 
 if __name__ == "__main__":
-    main()
+    app.run(debug=True)
+    
