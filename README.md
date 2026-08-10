@@ -1,327 +1,134 @@
 # AI Agent Coordination & Decision Engine
 
-An AI-powered Business Decision Support System developed as part of the **Infosys Springboard Virtual Internship 7.0**.
+An AI-powered **Business Decision Support System** developed as part of the **Infosys Springboard Virtual Internship 7.0**.
 
-The project demonstrates how multiple AI agents can collaborate internally to solve enterprise business problems while presenting a single unified interface to the user.
+The system uses multiple AI agents to collaboratively analyze business problems, perform research, create strategic plans, evaluate risks, and generate a structured business decision report.
+
+The user interacts with a single modern web interface while the AI agents work internally as a coordinated decision-making pipeline.
 
 ---
 
 # Project Overview
 
-Modern enterprises require intelligent systems capable of analyzing business problems, coordinating multiple AI capabilities, utilizing business tools, and generating informed decisions.
+Modern businesses often need to evaluate opportunities before making strategic decisions.
 
-This project implements a centralized AI Business Decision Engine that internally performs research, planning, tool execution, memory management, and final decision making without exposing individual agents to the user.
+A business decision may require:
 
-The current implementation focuses on the business niche:
+- Market research
+- Risk analysis
+- Strategic planning
+- Financial evaluation
+- Business tool execution
+- Decision reasoning
+- Follow-up analysis
 
-**E-Commerce Product Launch Decision Support**
+The **AI Agent Coordination & Decision Engine** automates this process by coordinating multiple specialized AI agents.
 
-Example Business Problem:
+The system accepts a business problem from the user and produces a structured decision report containing research insights, business-tool analysis, strategic planning, risk evaluation, conditions, and a final recommendation.
 
-> Should we launch an eco-friendly water bottle for college students?
-
-The system analyzes the request and produces a structured business decision report.
+After the report is generated, the user can continue the analysis by asking their **own follow-up questions dynamically**.
 
 ---
 
-# Objectives
+# Project Objectives
 
-The Business Decision Engine is designed to:
+The system is designed to:
 
-- Understand business problems
-- Perform business research
+- Understand business problems using natural language
+- Perform AI-powered business research
 - Generate strategic business plans
-- Evaluate market opportunities
-- Analyze business risks
-- Execute business tools when required
-- Coordinate AI agents internally
-- Store shared business context
-- Produce structured business recommendations
+- Evaluate market opportunities and risks
+- Execute appropriate business tools
+- Coordinate multiple specialized AI agents
+- Maintain shared business context
+- Generate structured business decision reports
+- Allow users to ask unlimited follow-up questions
+- Generate AI responses based on the original decision context
+- Provide an interactive business analysis experience
+- Allow generated reports to be exported/downloaded
 
 ---
 
 # Business Niche
 
-The current system specializes in supporting **E-Commerce Product Launch Decisions**.
+The current system focuses on:
 
-It helps organizations evaluate whether a new product should be launched by analyzing:
+## E-Commerce Product Launch Decision Support
 
-- Business objectives
-- Market opportunities
+The engine helps evaluate whether a product should be launched in an online market.
+
+It can analyze:
+
+- Market opportunity
+- Competition
+- Customer behavior
+- Pricing considerations
+- Product differentiation
+- Customer acquisition
 - Business risks
-- Financial considerations
 - Strategic planning
-- Final recommendation
+- Launch conditions
+- Expected business outcomes
+
+### Example Business Problem
+
+> Should we launch personalized phone cases online?
+
+The system processes the problem through multiple AI agents and business tools before generating the final recommendation.
 
 ---
 
 # System Architecture
 
-```
-                    User
-                      │
-                      ▼
-          Business Decision Problem
-                      │
-                      ▼
-      ┌────────────────────────────┐
-      │ Business Decision Engine   │
-      └────────────────────────────┘
-                      │
-     ┌────────────────┼─────────────────┐
-     ▼                ▼                 ▼
-Research Agent   Planning Agent   Decision Agent
-     │                │                 │
-     └────────────────┼─────────────────┘
-                      │
-              Shared Memory
-                      │
-             Business Tool Manager
-                      │
-     ┌────────────────┼─────────────────┐
-     ▼                ▼                 ▼
- Market Risk     Profit Tool     ROI Tool
-     │
-     ▼
-Business Decision Report
-```
-
----
-
-# Workflow
-
-The user interacts with only one component:
-
-```
-User
-   │
-   ▼
-Business Decision Engine
-   │
-   ▼
-Business Tool Selector
-   │
-   ▼
-Business Tools
-   │
-   ▼
-Research Agent
-   │
-   ▼
-Planning Agent
-   │
-   ▼
-Decision Agent
-   │
-   ▼
-Shared Memory
-   │
-   ▼
-Final Business Decision Report
-```
-
-The internal AI agents collaborate automatically without requiring any user intervention.
-
----
-
-# Core Components
-
-## Business Decision Engine
-
-Acts as the central controller of the system.
-
-Responsibilities:
-
-- Receives business requests
-- Coordinates AI agents
-- Executes business tools
-- Stores shared memory
-- Generates final reports
-
----
-
-## Research Agent
-
-Responsible for:
-
-- Business research
-- Market analysis
-- Opportunity identification
-- Risk discovery
-
----
-
-## Planning Agent
-
-Responsible for:
-
-- Strategy generation
-- Action planning
-- Business workflow planning
-- Implementation roadmap
-
----
-
-## Decision Agent
-
-Responsible for:
-
-- Combining all agent outputs
-- Evaluating tool results
-- Generating final recommendations
-- Producing business decision reports
-
----
-
-## Shared Memory
-
-Maintains information generated during execution.
-
-Currently stores:
-
-- Research output
-- Planning output
-- Tool output
-- Final decision
-- Business history
-
----
-
-## Tool Manager
-
-Automatically determines which business tool should be executed.
-
-The user never selects tools manually.
-
----
-
-## Business Tools
-
-Current tools include:
-
-- Market Risk Analysis
-- Profit Calculator
-- ROI Calculator
-- Break-even Calculator
-
----
-
-# Current Features
-
-- AI Business Decision Engine
-- Multi-Agent Coordination
-- Research Agent
-- Planning Agent
-- Decision Agent
-- Shared Memory
-- LangChain Integration
-- Google Gemini Integration
-- Intelligent Tool Selection
-- Tool Manager
-- Market Risk Analysis
-- Profit Calculator
-- ROI Calculator
-- Break-even Calculator
-- Structured Business Decision Report
-
----
-
-# Technologies Used
-
-- Python
-- LangChain
-- Google Gemini 2.5 Flash
-- Google Generative AI SDK
-- Prompt Engineering
-- Shared Memory
-- Modular Multi-Agent Architecture
-- Git
-- GitHub
-- VS Code
-
----
-
-# Project Structure
-
-```
-AI-Agent-Coordination-Decision-Engine
-│
-├── agents
-│   ├── business_decision_engine.py
-│   ├── research_agent.py
-│   ├── planning_agent.py
-│   └── decision_agent.py
-│
-├── prompts
-│   ├── business_decision_prompt.py
-│   ├── research_prompt.py
-│   ├── planning_prompt.py
-│   └── decision_prompt.py
-│
-├── tools
-│   ├── tool_selector.py
-│   ├── tool_manager.py
-│   ├── market_risk_tool.py
-│   ├── profit_tool.py
-│   ├── roi_tool.py
-│   └── break_even_tool.py
-│
-├── memory
-│   └── shared_memory.py
-│
-├── tests
-│   └── test_agent.py
-│
-├── config.py
-├── requirements.txt
-├── README.md
-└── .env
-```
-
----
-
-
-
-# Sample Business Problem
-
-```
-Should we launch an eco-friendly water bottle for college students?
-```
-
-The Business Decision Engine performs:
-
-- Business Research
-- Planning
-- Market Risk Analysis
-- Tool Execution
-- Decision Making
-
-and generates a structured business recommendation.
-
----
-
-
-# Future Enhancements
-
-- Persistent Long-Term Memory
-- Business Knowledge Repository
-- REST API using FastAPI
-- Interactive Dashboard
-- Database Integration
-- Workflow Monitoring
-- Multi-user Support
-- Cloud Deployment (Azure / AWS / GCP)
-
----
-
-# Author
-
-**Shobika P**
-
-Intern - Infosys Springboard Virtual Internship 7.0
-
----
-
-# License
-
-This project is developed for educational purposes as part of the Infosys Springboard Virtual Internship 7.0.
+```text
+                         USER
+                           │
+                           ▼
+                ┌──────────────────────┐
+                │   Web Application UI  │
+                └──────────────────────┘
+                           │
+                           ▼
+                Business Decision Engine
+                           │
+                           ▼
+                 Business Tool Selector
+                           │
+              ┌────────────┴────────────┐
+              ▼                         ▼
+       Business Tools             Shared Context
+              │                         │
+              └────────────┬────────────┘
+                           ▼
+                    Research Agent
+                           │
+                           ▼
+                    Planning Agent
+                           │
+                           ▼
+                    Decision Agent
+                           │
+                           ▼
+                  Final Decision Report
+                           │
+                           ▼
+                ┌──────────────────────┐
+                │ Report Presentation  │
+                │     in Web UI        │
+                └──────────────────────┘
+                           │
+                           ▼
+                User Enters Follow-up
+                     Question
+                           │
+                           ▼
+                   Follow-up Agent
+                           │
+                           ▼
+                Context-Aware AI Answer
+                           │
+                           ▼
+                User Can Ask Again
+                           │
+                           ▼
+                  Export Report            
