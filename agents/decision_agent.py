@@ -1,5 +1,7 @@
 from config import llm
 from prompts.decision_prompt import DECISION_PROMPT
+from utils.llm_helper import invoke_with_retry
+
 
 def decision_agent(
     task,
@@ -21,26 +23,46 @@ Research Findings:
 Business Plan:
 {planning}
 
-Business Tool Analysis
-
+Business Tool Analysis:
 {tool_output}
-
-Use this tool result while making the final business decision.
-
-Do not ignore it.
-
-Explain how the tool influenced your recommendation.
 
 Previous Business Decisions:
 {history}
+
+Use the business tool result while making the final decision.
+
+Do not ignore the tool result.
+
+Explain clearly how the tool influenced the recommendation.
+
+Return only the final business decision.
+Do not include metadata, signatures, or API response objects.
 """
 
-    response = llm.invoke(full_prompt)
+    print("[LLM] Decision Agent call")
+    response = invoke_with_retry(llm, full_prompt)
 
-    if isinstance(response.content, str):
-        return response.content
+    content = response.content
 
-    elif isinstance(response.content, list):
-        return response.content[0].get("text", "")
+    # Gemini/LangChain structured response
+    if isinstance(content, list):
 
-    return str(response.content)
+        text_parts = []
+
+        for item in content:
+
+            if isinstance(item, dict):
+
+                if item.get("type") == "text":
+                    text_parts.append(item.get("text", ""))
+
+            elif isinstance(item, str):
+                text_parts.append(item)
+
+        return "\n".join(text_parts).strip()
+
+    # Normal string response
+    if isinstance(content, str):
+        return content.strip()
+
+    return str(content)
