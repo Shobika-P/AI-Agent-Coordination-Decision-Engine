@@ -11,34 +11,27 @@ from agents.decision_agent import decision_agent
 from agents.followup_agent import followup_agent
 from tools.tool_manager import execute_tool
 from memory.shared_memory import SharedMemory
+from memory.report_db import report_db
 
 memory = SharedMemory()
-
-
-# ============================================================
-# SHARED LANGGRAPH STATE DEFINITION
-# ============================================================
 
 class GraphState(TypedDict):
     task: str
     conversation_id: str
+    selected_tool: Optional[str]
     conversation_history: List[Dict[str, str]]
     research_result: Optional[str]
     planning_result: Optional[str]
     business_tool_result: Optional[Any]
-    decision_result: Optional[str]
+    decision_result: Optional[Any]
     final_report: Optional[Dict[str, Any]]
     followup_question: Optional[str]
     followup_answer: Optional[str]
     errors: List[str]
-    workflow_status: str  # "started", "running", "completed", "failed"
-    agent_statuses: Dict[str, str]  # e.g. {"tool": "COMPLETED", "research": "COMPLETED", ...}
+    workflow_status: str
+    agent_statuses: Dict[str, str]
     execution_metrics: Dict[str, Any]
 
-
-# ============================================================
-# INITIAL REPORT WORKFLOW NODES
-# ============================================================
 
 def business_tool_node(state: GraphState) -> Dict[str, Any]:
     task = state["task"]
@@ -52,14 +45,14 @@ def business_tool_node(state: GraphState) -> Dict[str, Any]:
     print("\n[LangGraph] Node: business_tool_node")
 
     tool_result = None
-    risk_level = "Medium"
+    selected_tool_name = "Market Risk Tool"
 
     try:
         raw_result = execute_tool(task)
         if raw_result and raw_result != "No business tool required.":
             tool_result = raw_result
             if isinstance(raw_result, dict):
-                risk_level = raw_result.get("risk_level", "Medium")
+                selected_tool_name = raw_result.get("tool", "Market Risk Tool")
             agent_statuses["tool"] = "COMPLETED"
         else:
             tool_result = "No quantitative tool required for this analysis."
@@ -74,6 +67,7 @@ def business_tool_node(state: GraphState) -> Dict[str, Any]:
     memory.save("tool", tool_result)
 
     return {
+        "selected_tool": selected_tool_name,
         "business_tool_result": tool_result,
         "agent_statuses": agent_statuses,
         "execution_metrics": execution_metrics,
@@ -170,7 +164,7 @@ def decision_node(state: GraphState) -> Dict[str, Any]:
     except Exception as e:
         print("[LangGraph] Decision Agent Error:", e)
         errors.append(f"Decision Error: {str(e)}")
-        decision = f"Decision Error: {str(e)}"
+        decision = {"decision": f"Decision Error: {str(e)}", "viability_score": 50, "confidence": 50}
         agent_statuses["decision"] = "FAILED"
 
     execution_metrics["decision_seconds"] = round(time.time() - t0, 2)
@@ -186,7 +180,7 @@ def decision_node(state: GraphState) -> Dict[str, Any]:
 
 def report_node(state: GraphState) -> Dict[str, Any]:
     task = state["task"]
-    decision = state.get("decision_result") or ""
+    decision = state.get("decision_result")
     tool_res = state.get("business_tool_result")
     metrics = state.get("execution_metrics") or {}
     agent_statuses = dict(state.get("agent_statuses") or {})
@@ -198,19 +192,46 @@ def report_node(state: GraphState) -> Dict[str, Any]:
     if isinstance(tool_res, dict):
         risk_level = tool_res.get("risk_level", "Medium")
 
+    decision_text = ""
+    viability_score = 78
+    confidence = 82
+    why_this_decision = []
+    key_risks = []
+    key_opportunities = []
+
+    if isinstance(decision, dict):
+        decision_text = decision.get("executive_summary") or decision.get("recommendation_title") or str(decision)
+        viability_score = decision.get("viability_score", 78)
+        confidence = decision.get("confidence", 82)
+        why_this_decision = decision.get("why_this_decision", [])
+        key_risks = decision.get("key_risks", [])
+        key_opportunities = decision.get("key_opportunities", [])
+    else:
+        decision_text = str(decision)
+
     report_data = {
-        "decision": decision,
+        "decision": decision_text,
         "risk_level": risk_level,
+        "viability_score": viability_score,
+        "confidence": confidence,
+        "why_this_decision": why_this_decision,
+        "key_risks": key_risks,
+        "key_opportunities": key_opportunities,
         "execution_metrics": metrics
     }
 
     if isinstance(tool_res, dict):
         report_data["tool_analysis"] = tool_res
 
-    memory.add_history(task, decision, risk_level=risk_level)
-
-    # Store full state in session memory
+    # Save to SQLite Database
     conv_id = state.get("conversation_id") or str(uuid.uuid4())
+    report_db.save_report(
+        report_id=conv_id,
+        original_question=task,
+        report_data=report_data,
+        conversation_history=state.get("conversation_history") or []
+    )
+
     session_data = {
         "task": task,
         "report": report_data,
@@ -227,10 +248,7 @@ def report_node(state: GraphState) -> Dict[str, Any]:
     }
 
 
-# ============================================================
-# BUILD REPORT WORKFLOW GRAPH
-# ============================================================
-
+# Build Report Workflow Graph
 report_builder = StateGraph(GraphState)
 
 report_builder.add_node("business_tool_node", business_tool_node)
@@ -249,10 +267,7 @@ report_builder.add_edge("report_node", END)
 report_workflow = report_builder.compile()
 
 
-# ============================================================
-# FOLLOW-UP WORKFLOW NODES
-# ============================================================
-
+# Follow-up Workflow Nodes
 def load_previous_context(state: GraphState) -> Dict[str, Any]:
     conv_id = state.get("conversation_id")
     print(f"\n[LangGraph Follow-up] Node: load_previous_context for session: {conv_id}")
@@ -321,16 +336,13 @@ def update_memory_node(state: GraphState) -> Dict[str, Any]:
         session = memory.load_session(conv_id) or {}
         session["conversation_history"] = history
         memory.save_session(conv_id, session)
+        report_db.update_conversation(conv_id, history)
 
     return {
         "conversation_history": history,
         "workflow_status": "completed"
     }
 
-
-# ============================================================
-# BUILD FOLLOW-UP WORKFLOW GRAPH
-# ============================================================
 
 followup_builder = StateGraph(GraphState)
 
@@ -346,3 +358,4 @@ followup_builder.add_edge("followup_response_node", "update_memory_node")
 followup_builder.add_edge("update_memory_node", END)
 
 followup_workflow = followup_builder.compile()
+

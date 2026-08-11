@@ -1,20 +1,15 @@
 import datetime
 import json
 import os
-
+from memory.report_db import report_db
+from utils.gemini_client import gemini_client
 
 class SharedMemory:
 
     def __init__(self):
         self.memory = {}
         self.sessions = {}
-        self.history_file = "memory/history.json"
-
-        # Create history file directory and file if missing
-        os.makedirs("memory", exist_ok=True)
-        if not os.path.exists(self.history_file):
-            with open(self.history_file, "w") as file:
-                json.dump([], file)
+        self.report_db = report_db
 
     # ------------------------
     # Short-Term & Key Memory
@@ -34,36 +29,36 @@ class SharedMemory:
         self.sessions[conversation_id] = session_data
 
     def load_session(self, conversation_id):
-        return self.sessions.get(conversation_id)
+        # Try in-memory active session first, then SQLite DB
+        if conversation_id in self.sessions:
+            return self.sessions[conversation_id]
+        
+        db_report = self.report_db.get_report(conversation_id)
+        if db_report:
+            session_data = {
+                "task": db_report.get("original_question"),
+                "report": db_report.get("report_data"),
+                "conversation_history": db_report.get("conversation_history", [])
+            }
+            self.sessions[conversation_id] = session_data
+            return session_data
+            
+        return None
 
     # ------------------------
     # Long-Term Decision Log Memory
     # ------------------------
 
-    def add_history(self, task, decision, risk_level="Unknown"):
-        history = self.get_history()
-
-        history.append({
-            "task": task,
-            "decision": decision,
-            "risk_level": risk_level,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        })
-
-        try:
-            with open(self.history_file, "w") as file:
-                json.dump(history, file, indent=4)
-        except Exception as e:
-            print("Error writing history file:", e)
+    def add_history(self, task, decision, risk_level="Unknown", report_data=None, conversation_id=None):
+        report_data = report_data or {"decision": decision, "risk_level": risk_level}
+        return self.report_db.save_report(
+            report_id=conversation_id,
+            original_question=task,
+            report_data=report_data
+        )
 
     def get_history(self):
-        try:
-            if os.path.exists(self.history_file):
-                with open(self.history_file, "r") as file:
-                    return json.load(file)
-        except Exception as e:
-            print("Error reading history file:", e)
-        return []
+        return self.report_db.list_reports()
 
     # ------------------------
     # Monitoring Telemetry Metrics
@@ -73,6 +68,7 @@ class SharedMemory:
         history = self.get_history()
         total_decisions = len(history)
         active_sessions = len(self.sessions)
+        ai_telemetry = gemini_client.get_telemetry_metrics()
 
         return {
             "total_decisions": total_decisions,
@@ -80,6 +76,7 @@ class SharedMemory:
             "completed_workflows": total_decisions,
             "failed_workflows": 0,
             "active_sessions": active_sessions,
+            "gemini_telemetry": ai_telemetry,
             "agent_statuses": {
                 "business_tool": "OPERATIONAL",
                 "research_agent": "OPERATIONAL",
@@ -88,5 +85,5 @@ class SharedMemory:
                 "followup_agent": "OPERATIONAL"
             },
             "api_status": "online",
-            "model_status": "operational"
+            "model_status": "operational" if not ai_telemetry.get("quota_exhausted") else "demo_fallback"
         }

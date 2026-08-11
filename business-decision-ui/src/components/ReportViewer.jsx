@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import API from "../services/api";
+import WhatIfPanel from "./WhatIfPanel";
 
 function safeString(value, fallback = "") {
     if (value === null || value === undefined) return fallback;
@@ -18,39 +19,12 @@ function safeString(value, fallback = "") {
     return fallback;
 }
 
-function parseTextSections(rawText) {
-    if (!rawText || typeof rawText !== "string") return {};
-
-    const sections = {};
-    const lines = rawText.split("\n");
-    let currentHeader = "main";
-    let currentContent = [];
-
-    lines.forEach((line) => {
-        const trimmed = line.trim();
-        if (/^(RECOMMENDATION|EXECUTIVE SUMMARY|RESEARCH INSIGHTS|BUSINESS PLAN|EXECUTION PLAN|HISTORICAL INSIGHTS|CONDITIONS|REQUIREMENTS|CONCLUSION|FINAL ASSESSMENT)/i.test(trimmed)) {
-            if (currentContent.length > 0) {
-                sections[currentHeader] = currentContent.join("\n").trim();
-            }
-            currentHeader = trimmed.toUpperCase().replace(/[:#]/g, "").trim();
-            currentContent = [];
-        } else {
-            currentContent.push(line);
-        }
-    });
-
-    if (currentContent.length > 0) {
-        sections[currentHeader] = currentContent.join("\n").trim();
-    }
-
-    return sections;
-}
-
 function ReportViewer({
     report,
     task,
     loading,
     error,
+    quotaNotice,
     followupMessages = [],
     onFollowup,
     onClearFollowup,
@@ -60,6 +34,9 @@ function ReportViewer({
     const [showExportMenu, setShowExportMenu] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [toastMsg, setToastMsg] = useState("");
+    const [dynamicViability, setDynamicViability] = useState(null);
+    const [dynamicRisk, setDynamicRisk] = useState(null);
+
     const threadEndRef = useRef(null);
 
     useEffect(() => {
@@ -68,21 +45,25 @@ function ReportViewer({
         }
     }, [followupMessages]);
 
+    useEffect(() => {
+        setDynamicViability(null);
+        setDynamicRisk(null);
+    }, [report]);
+
     const suggestedChips = [
         "Why is the market risk medium?",
-        "How can we reduce CAC?",
-        "Would targeting students change the recommendation?",
-        "What are the top 3 execution priorities?"
+        "How can we lower customer acquisition cost?",
+        "What happens if sales volume drops by 20%?",
+        "What are our top 3 execution priorities?"
     ];
 
-    // Export Handlers
     const handleExport = async (format) => {
         setShowExportMenu(false);
 
         if (format === "copy") {
             const decisionText = safeString(report?.decision);
-            const riskText = safeString(report?.risk_level || report?.tool_analysis?.risk_level, "Medium");
-            const copyContent = `AI EXECUTIVE DECISION REPORT\nQuery: ${task}\nRisk Level: ${riskText}\n\n${decisionText}`;
+            const riskText = safeString(dynamicRisk || report?.risk_level || report?.tool_analysis?.risk_level, "Medium");
+            const copyContent = `ENTERPRISE AI DECISION REPORT\nQuery: ${task}\nRisk Level: ${riskText}\nViability Score: ${dynamicViability || report?.viability_score || 78}/100\n\n${decisionText}`;
             navigator.clipboard.writeText(copyContent);
             setToastMsg("Report copied to clipboard!");
             setTimeout(() => setToastMsg(""), 3000);
@@ -155,7 +136,7 @@ function ReportViewer({
                     <div className="error-icon">⚠️</div>
                     <h3>Analysis Could Not Be Completed</h3>
                     <p>{safeString(error, "An unexpected error occurred.")}</p>
-                    <span className="error-hint">Please check server connectivity or Gemini API quota limits.</span>
+                    <span className="error-hint">System is protected by automatic DEMO/CACHE mode. Click below to retry.</span>
                     {onRetry && (
                         <button className="btn-retry-action" onClick={onRetry} style={{ marginTop: "16px" }}>
                             🔄 Retry Request
@@ -169,43 +150,44 @@ function ReportViewer({
     if (!report) {
         return (
             <section className="report-container empty-state-card">
-                <div className="empty-badge">ENTERPRISE DECISION SUPPORT</div>
-                <h2>Awaiting Business Inquiry</h2>
+                <div className="empty-badge">ENTERPRISE DECISION WORKSPACE</div>
+                <h2>Awaiting Business Query</h2>
                 <p>
-                    Submit a business idea above to initiate autonomous multi-agent analysis,
-                    risk scoring, financial tool modeling, and executive report generation.
+                    Submit a strategic business problem above to initiate autonomous multi-agent analysis,
+                    risk modeling, financial tool calculations, and decision intelligence.
                 </p>
                 <div className="empty-features-grid">
                     <div className="feature-item">
                         <span>🔍</span>
                         <strong>Research Agent</strong>
-                        <p>Evaluates market size and competitive pressure</p>
+                        <p>Evaluates market demand and competitor positioning</p>
                     </div>
                     <div className="feature-item">
                         <span>📊</span>
-                        <strong>Financial Tools</strong>
-                        <p>Quantifies risk & break-even points</p>
+                        <strong>Quantitative Tools</strong>
+                        <p>Calculates profit, ROI, break-even & market risk</p>
                     </div>
                     <div className="feature-item">
                         <span>🚀</span>
                         <strong>Planning Agent</strong>
-                        <p>Creates phased strategic roadmap</p>
+                        <p>Formulates phased strategic execution roadmap</p>
                     </div>
                     <div className="feature-item">
                         <span>⚖️</span>
                         <strong>Decision Agent</strong>
-                        <p>Delivers final actionable recommendation</p>
+                        <p>Delivers Viability Score & actionable recommendation</p>
                     </div>
                 </div>
             </section>
         );
     }
 
-    const rawDecisionText = safeString(report.decision);
-    const parsedSections = parseTextSections(rawDecisionText);
+    const decisionText = safeString(report.decision);
+    const viabilityScore = dynamicViability || report.viability_score || 78;
+    const confidenceScore = report.confidence || 82;
 
     const riskLevelStr = safeString(
-        report.risk_level || report.tool_analysis?.risk_level,
+        dynamicRisk || report.risk_level || report.tool_analysis?.risk_level,
         "Medium"
     );
     const normalizedRisk = riskLevelStr.toLowerCase();
@@ -215,17 +197,6 @@ function ReportViewer({
             : normalizedRisk === "high"
             ? "risk-badge-high"
             : "risk-badge-medium";
-    const riskIcon =
-        normalizedRisk === "low"
-            ? "🛡️ LOW RISK"
-            : normalizedRisk === "high"
-            ? "⚠️ HIGH RISK"
-            : "⚡ MEDIUM RISK";
-
-    let recommendationTitle = rawDecisionText.split("\n")[0] || "RECOMMENDATION GENERATED";
-    if (recommendationTitle.length > 120) {
-        recommendationTitle = recommendationTitle.substring(0, 117) + "...";
-    }
 
     const isAnyFollowupLoading = followupMessages.some((msg) => msg.loading);
 
@@ -238,12 +209,20 @@ function ReportViewer({
 
     return (
         <section className="report-container">
-            {/* EXECUTIVE REPORT WRAPPER */}
+            {/* QUOTA WARNING NOTICE BANNER */}
+            {quotaNotice && (
+                <div className="quota-notice-banner">
+                    <span className="banner-icon">⚡</span>
+                    <span>AI quota temporarily unavailable. Cached analysis or demo mode is being used.</span>
+                </div>
+            )}
+
+            {/* EXECUTIVE REPORT CARD */}
             <div className="executive-report-card">
-                {/* REPORT METADATA HEADER WITH EXPORT CONTROLS */}
+                {/* METADATA HEADER */}
                 <div className="report-meta-header">
                     <div className="report-meta-left">
-                        <span className="meta-eyebrow">AI DECISION REPORT</span>
+                        <span className="meta-eyebrow">AI DECISION INTELLIGENCE</span>
                         <h2 className="report-meta-title">Executive Strategic Assessment</h2>
                     </div>
 
@@ -282,192 +261,166 @@ function ReportViewer({
                     </div>
                 </div>
 
-                {/* DECISION HERO BANNER */}
-                <div className={`decision-hero-banner ${riskBadgeClass}`}>
-                    <div className="hero-banner-content">
-                        <span className="banner-eyebrow">EXECUTIVE RECOMMENDATION</span>
-                        <h1 className="banner-headline">{recommendationTitle}</h1>
-                        <p className="banner-subtext">
-                            Synthesized from Research, Planning, and Quantitative Business Tools.
-                        </p>
+                {/* DECISION INTELLIGENCE SCORECARDS */}
+                <div className="intelligence-scorecard-grid">
+                    <div className="scorecard-item">
+                        <span className="scorecard-label">BUSINESS VIABILITY</span>
+                        <div className="scorecard-value-group">
+                            <span className="scorecard-number">{viabilityScore}</span>
+                            <span className="scorecard-max">/ 100</span>
+                        </div>
+                        <div className="scorecard-bar-track">
+                            <div className="scorecard-bar-fill blue" style={{ width: `${viabilityScore}%` }}></div>
+                        </div>
                     </div>
 
-                    <div className="hero-risk-container">
-                        <div className={`risk-badge-pill ${riskBadgeClass}`}>
-                            <span className="risk-pill-icon">{riskIcon}</span>
+                    <div className="scorecard-item">
+                        <span className="scorecard-label">AI CONFIDENCE</span>
+                        <div className="scorecard-value-group">
+                            <span className="scorecard-number green">{confidenceScore}%</span>
                         </div>
+                        <div className="scorecard-bar-track">
+                            <div className="scorecard-bar-fill green" style={{ width: `${confidenceScore}%` }}></div>
+                        </div>
+                    </div>
+
+                    <div className="scorecard-item">
+                        <span className="scorecard-label">MARKET RISK LEVEL</span>
+                        <div className="scorecard-value-group">
+                            <span className={`risk-pill-badge ${riskBadgeClass}`}>
+                                {riskLevelStr.toUpperCase()} RISK
+                            </span>
+                        </div>
+                        <small className="scorecard-subtext">Quantified by Multi-Agent Engine</small>
                     </div>
                 </div>
 
-                {/* SECTION 01: EXECUTIVE SUMMARY */}
+                {/* EXECUTIVE SUMMARY BLOCK */}
                 <div className="report-section-block">
                     <div className="section-header-title">
                         <span className="section-num">01</span>
                         <div>
-                            <small className="section-tag">OVERVIEW</small>
-                            <h3 className="section-heading">Executive Summary</h3>
+                            <small className="section-tag">EXECUTIVE RECOMMENDATION</small>
+                            <h3 className="section-heading">Strategic Summary</h3>
                         </div>
                     </div>
                     <div className="summary-card-body">
-                        <p className="summary-text">
-                            {parsedSections["EXECUTIVE SUMMARY"] || rawDecisionText}
-                        </p>
+                        <p className="summary-text">{decisionText}</p>
                     </div>
                 </div>
 
-                {/* SECTION 02: BUSINESS TOOL ANALYSIS */}
-                {report.tool_analysis && (
+                {/* WHY THIS DECISION DRIVERS */}
+                {Array.isArray(report.why_this_decision) && report.why_this_decision.length > 0 && (
                     <div className="report-section-block">
-                        <div className="section-header-title">
-                            <span className="section-num">02</span>
-                            <div>
-                                <small className="section-tag">QUANTITATIVE INTELLIGENCE</small>
-                                <h3 className="section-heading">Business Tool Analysis</h3>
-                            </div>
-                        </div>
-
-                        <div className="tool-cards-grid">
-                            <div className="tool-metric-card">
-                                <span className="metric-card-label">ANALYSIS TOOL</span>
-                                <h4 className="metric-card-val">
-                                    {safeString(report.tool_analysis.tool_name, "Market Risk Tool")}
-                                </h4>
-                            </div>
-
-                            <div className="tool-metric-card">
-                                <span className="metric-card-label">RISK LEVEL</span>
-                                <h4 className={`metric-card-val ${riskBadgeClass}`}>
-                                    {safeString(report.tool_analysis.risk_level, riskLevelStr)}
-                                </h4>
-                            </div>
-                        </div>
-
-                        {Array.isArray(report.tool_analysis.observations) &&
-                            report.tool_analysis.observations.length > 0 && (
-                                <div className="tool-observations-box">
-                                    <h4 className="observations-title">Key Observations</h4>
-                                    <div className="observations-list">
-                                        {report.tool_analysis.observations.map((obs, idx) => (
-                                            <div className="observation-row" key={idx}>
-                                                <span className="obs-check">✓</span>
-                                                <span className="obs-text">{safeString(obs)}</span>
-                                            </div>
-                                        ))}
-                                    </div>
+                        <h4 className="drivers-title">Why This Decision?</h4>
+                        <div className="drivers-grid">
+                            {report.why_this_decision.map((driver, idx) => (
+                                <div key={idx} className="driver-chip-item">
+                                    <span className="driver-icon">✓</span>
+                                    <span className="driver-text">{safeString(driver)}</span>
                                 </div>
-                            )}
+                            ))}
+                        </div>
+                    </div>
+                )}
 
-                        {report.tool_analysis.recommendation && (
-                            <div className="tool-rec-callout">
-                                <span className="rec-callout-label">TOOL RECOMMENDATION</span>
-                                <p className="rec-callout-text">
-                                    {safeString(report.tool_analysis.recommendation)}
-                                </p>
+                {/* RISKS & OPPORTUNITIES GRID */}
+                {((Array.isArray(report.key_risks) && report.key_risks.length > 0) ||
+                    (Array.isArray(report.key_opportunities) && report.key_opportunities.length > 0)) && (
+                    <div className="risks-opportunities-grid">
+                        {Array.isArray(report.key_risks) && report.key_risks.length > 0 && (
+                            <div className="risk-box-card">
+                                <h4 className="box-heading risk">⚠️ Key Risks</h4>
+                                <ul>
+                                    {report.key_risks.map((riskItem, idx) => (
+                                        <li key={idx}>{safeString(riskItem)}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {Array.isArray(report.key_opportunities) && report.key_opportunities.length > 0 && (
+                            <div className="opportunity-box-card">
+                                <h4 className="box-heading opportunity">✦ Key Opportunities</h4>
+                                <ul>
+                                    {report.key_opportunities.map((oppItem, idx) => (
+                                        <li key={idx}>{safeString(oppItem)}</li>
+                                    ))}
+                                </ul>
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* SECTION 03: RESEARCH INSIGHTS */}
-                {Array.isArray(report.research_summary) && report.research_summary.length > 0 && (
+                {/* QUANTITATIVE TOOL ANALYSIS */}
+                {report.tool_analysis && (
                     <div className="report-section-block">
                         <div className="section-header-title">
-                            <span className="section-num">03</span>
+                            <span className="section-num">02</span>
                             <div>
-                                <small className="section-tag">MARKET RESEARCH</small>
-                                <h3 className="section-heading">Market Insights</h3>
+                                <small className="section-tag">QUANTITATIVE MODELING</small>
+                                <h3 className="section-heading">Business Tool Analysis</h3>
                             </div>
                         </div>
 
-                        <div className="insights-cards-grid">
-                            {report.research_summary.map((insight, idx) => (
-                                <div className="insight-item-card" key={idx}>
-                                    <div className="insight-card-top">
-                                        <span className="insight-idx">
-                                            {String(idx + 1).padStart(2, "0")}
-                                        </span>
-                                        <span className="insight-arrow-icon">↗</span>
-                                    </div>
-                                    <p className="insight-card-body">{safeString(insight)}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* SECTION 04: BUSINESS EXECUTION PLAN */}
-                {Array.isArray(report.business_plan) && report.business_plan.length > 0 && (
-                    <div className="report-section-block">
-                        <div className="section-header-title">
-                            <span className="section-num">04</span>
-                            <div>
-                                <small className="section-tag">STRATEGIC ROADMAP</small>
-                                <h3 className="section-heading">Execution Plan</h3>
+                        <div className="tool-metric-cards-grid">
+                            <div className="tool-metric-card">
+                                <small>EXECUTED TOOL</small>
+                                <h4>{safeString(report.tool_analysis.tool_name || report.tool_analysis.tool, "Market Risk Tool")}</h4>
+                            </div>
+                            <div className="tool-metric-card">
+                                <small>TOOL RATING</small>
+                                <h4 className={riskBadgeClass}>{safeString(report.tool_analysis.risk_level, riskLevelStr)}</h4>
                             </div>
                         </div>
 
-                        <div className="timeline-container">
-                            {report.business_plan.map((phase, idx) => (
-                                <div className="timeline-card-item" key={idx}>
-                                    <div className="timeline-node">
-                                        <span>{String(idx + 1).padStart(2, "0")}</span>
-                                    </div>
-                                    <div className="timeline-body-card">
-                                        <span className="phase-pill">
-                                            {safeString(phase.phase, `PHASE ${idx + 1}`)}
-                                        </span>
-                                        <h4 className="phase-headline">{safeString(phase.title)}</h4>
-                                        <p className="phase-description">
-                                            {safeString(phase.description)}
+                        {Array.isArray(report.tool_analysis.observations) &&
+                            report.tool_analysis.observations.length > 0 && (
+                                <div className="observations-list-box">
+                                    <h5 className="obs-title">Observations</h5>
+                                    {report.tool_analysis.observations.map((obs, idx) => (
+                                        <p key={idx} className="obs-item">
+                                            <span>•</span> {safeString(obs)}
                                         </p>
-                                    </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
+                            )}
                     </div>
                 )}
 
-                {/* SECTION 05: CONDITIONS & FINAL CONCLUSION */}
-                {parsedSections["CONCLUSION"] || parsedSections["FINAL ASSESSMENT"] ? (
-                    <div className="report-conclusion-card">
-                        <span className="conclusion-tag">FINAL ASSESSMENT</span>
-                        <h3 className="conclusion-title">What should happen next?</h3>
-                        <p className="conclusion-text">
-                            {parsedSections["CONCLUSION"] || parsedSections["FINAL ASSESSMENT"]}
-                        </p>
-                    </div>
-                ) : null}
+                {/* SENSITIVITY WHAT-IF ANALYSIS ENGINE */}
+                <WhatIfPanel
+                    task={task}
+                    onUpdateMetrics={({ viability_score, risk_level }) => {
+                        if (viability_score) setDynamicViability(viability_score);
+                        if (risk_level) setDynamicRisk(risk_level);
+                    }}
+                />
             </div>
 
-            {/* =========================================================
-                FOLLOW-UP CONVERSATION PANEL ("ASK THE DECISION ENGINE")
-            ========================================================= */}
+            {/* DYNAMIC UNLIMITED FOLLOW-UP CONVERSATION */}
             <div className="followup-panel">
                 <div className="followup-panel-header">
                     <div>
                         <span className="panel-eyebrow">CONTINUE THE ANALYSIS</span>
                         <h3 className="panel-title">Ask the Decision Engine</h3>
                         <p className="panel-subtitle">
-                            Explore any part of the recommendation, risk, market, pricing, customers, strategy, or next steps.
+                            Ask any strategic, financial, marketing, operational, or pricing follow-up question.
                         </p>
                     </div>
-                    <div className="panel-header-right" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        {followupMessages.length > 0 && onClearFollowup && (
-                            <button
-                                type="button"
-                                className="btn-clear-discussion"
-                                onClick={onClearFollowup}
-                                title="Clear follow-up conversation history"
-                            >
-                                🗑️ Clear History
-                            </button>
-                        )}
-                        <div className="panel-header-icon">💬</div>
-                    </div>
+                    {followupMessages.length > 0 && onClearFollowup && (
+                        <button
+                            type="button"
+                            className="btn-clear-discussion"
+                            onClick={onClearFollowup}
+                        >
+                            🗑️ Clear Thread
+                        </button>
+                    )}
                 </div>
 
                 <div className="suggested-chips-container">
-                    <span className="chips-hint">Suggested follow-ups:</span>
+                    <span className="chips-hint">Suggested questions:</span>
                     <div className="chips-flex">
                         {suggestedChips.map((chipText, idx) => (
                             <button
@@ -493,15 +446,13 @@ function ReportViewer({
                                 handleSendFollowup();
                             }
                         }}
-                        placeholder="Ask your own question about this decision..."
+                        placeholder="Ask any follow-up question about this decision..."
                         rows={3}
                         disabled={isAnyFollowupLoading}
                     />
 
                     <div className="input-card-footer">
-                        <span className="footer-keyboard-tip">
-                            Press Ctrl + Enter to send
-                        </span>
+                        <span className="footer-keyboard-tip">Press Ctrl + Enter to submit</span>
 
                         <button
                             type="button"
@@ -510,10 +461,7 @@ function ReportViewer({
                             disabled={isAnyFollowupLoading || !localFollowupText.trim()}
                         >
                             {isAnyFollowupLoading ? (
-                                <span className="btn-loading-inline">
-                                    <span className="mini-spinner"></span>
-                                    <span>Analyzing...</span>
-                                </span>
+                                <span>Analyzing...</span>
                             ) : (
                                 <span>Ask Decision Engine →</span>
                             )}
@@ -523,44 +471,37 @@ function ReportViewer({
 
                 {followupMessages.length > 0 && (
                     <div className="conversation-thread-list">
-                        <h4 className="thread-section-title">Follow-up Discussion</h4>
+                        <h4 className="thread-section-title">Follow-up Conversation History</h4>
 
                         {followupMessages.map((msg) => (
                             <div className="conversation-item-block" key={msg.id}>
                                 <div className="user-question-bubble">
-                                    <div className="bubble-header">
-                                        <span className="bubble-role">YOUR QUESTION</span>
-                                    </div>
-                                    <p className="bubble-text">{msg.question}</p>
+                                    <span className="bubble-role">YOUR QUESTION</span>
+                                    <p>{msg.question}</p>
                                 </div>
 
                                 <div className="ai-response-bubble">
-                                    <div className="bubble-header">
-                                        <span className="bubble-role ai">AI DECISION ENGINE</span>
-                                        <span className="ai-sparkle">✦</span>
-                                    </div>
+                                    <span className="bubble-role ai">AI DECISION ENGINE ✦</span>
 
                                     {msg.loading && (
                                         <div className="ai-inline-loading">
-                                            <span className="pulse-mini-dot"></span>
-                                            <span>Analyzing your question with decision context...</span>
+                                            <span className="spinner-dot"></span>
+                                            <span>Analyzing with decision context...</span>
                                         </div>
                                     )}
 
                                     {msg.error && (
                                         <div className="ai-inline-error">
-                                            <span className="error-badge-icon">⚠️</span>
-                                            <p>{safeString(msg.error)}</p>
+                                            <span>⚠️ {safeString(msg.error)}</span>
                                         </div>
                                     )}
 
                                     {msg.answer && !msg.loading && (
                                         <div className="ai-answer-content">
-                                            <p className="answer-paragraph">{safeString(msg.answer)}</p>
+                                            <p>{safeString(msg.answer)}</p>
                                             <button
                                                 className="btn-copy-inline"
                                                 onClick={() => navigator.clipboard.writeText(safeString(msg.answer))}
-                                                title="Copy answer to clipboard"
                                             >
                                                 📋 Copy
                                             </button>

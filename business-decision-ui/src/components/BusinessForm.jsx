@@ -1,132 +1,75 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 function BusinessForm({ onGenerate, loading, initialTask }) {
-    const [task, setTask] = useState(
-        initialTask || "Should we launch personalized phone cases online?"
-    );
+    const [taskInput, setTaskInput] = useState(initialTask || "");
 
-    useEffect(() => {
-        if (initialTask) {
-            setTask(initialTask);
-        }
-    }, [initialTask]);
-
-    const examples = [
-        { text: "Should we launch personalized phone cases online?", tag: "E-Commerce" },
-        { text: "Should we launch an eco-friendly water bottle for college students?", tag: "Consumer Product" },
-        { text: "Should we start an online food delivery business?", tag: "Services" },
-        { text: "Should we launch an AI-powered student learning app?", tag: "SaaS / Tech" }
+    const presetPrompts = [
+        "Should we launch personalized phone cases online?",
+        "Should we expand our B2B SaaS platform to SMB markets?",
+        "Is it profitable to start an eco-friendly direct-to-consumer apparel line?",
+        "What is the break-even volume for launching a specialty coffee subscription?"
     ];
 
     const handleSubmit = (e) => {
-        e.preventDefault();
-        if (!task.trim() || loading) return;
-        onGenerate(task);
+        if (e) e.preventDefault();
+        if (!taskInput.trim() || loading) return;
+        onGenerate(taskInput.trim());
     };
 
     return (
-        <section className="hero-section">
-            <div className="hero-header">
-                <div className="hero-eyebrow">
-                    <span className="pulse-dot"></span>
-                    <span>MULTI-AGENT DECISION ENGINE</span>
-                </div>
-
-                <h1 className="hero-title">
-                    Turn complex business questions <br />
-                    into <span className="gradient-text">strategic decisions.</span>
-                </h1>
-
-                <p className="hero-subtitle">
-                    Autonomous AI agents execute market research, quantitative financial risk modeling,
-                    and step-by-step strategic planning orchestrated via LangGraph workflows.
+        <section className="business-form-hero-card">
+            <div className="hero-text-block">
+                <span className="hero-eyebrow">ENTERPRISE DECISION INTELLIGENCE</span>
+                <h2 className="hero-headline">Synthesize Autonomous AI Strategic Assessments</h2>
+                <p className="hero-subtext">
+                    Input your strategic business question to initiate LangGraph state graph orchestration,
+                    quantitative tool execution, research modeling, and persistent SQLite report generation.
                 </p>
             </div>
 
-            <div className="input-card">
-                <form onSubmit={handleSubmit}>
-                    <div className="input-header-row">
-                        <label className="input-label" htmlFor="business-task-input">
-                            What business decision are you evaluating?
-                        </label>
-                        <span className="char-counter">
-                            {task.length} characters
-                        </span>
-                    </div>
+            <form onSubmit={handleSubmit} className="query-input-wrapper">
+                <div className="textarea-container">
+                    <textarea
+                        value={taskInput}
+                        onChange={(e) => setTaskInput(e.target.value)}
+                        placeholder="Describe your business problem, launch idea, or investment decision in detail..."
+                        rows={3}
+                        disabled={loading}
+                    />
+                </div>
 
-                    <div className="textarea-wrapper">
-                        <textarea
-                            id="business-task-input"
-                            value={task}
-                            onChange={(e) => setTask(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                                    e.preventDefault();
-                                    if (task.trim() && !loading) {
-                                        onGenerate(task);
-                                    }
-                                }
-                            }}
-                            placeholder="Describe your business idea, target market, pricing model, or strategic dilemma..."
-                            rows={4}
-                            disabled={loading}
-                        />
-
-                        {task && !loading && (
+                <div className="form-bottom-bar">
+                    <div className="preset-prompts-flex">
+                        <small className="presets-label">Preset Scenarios:</small>
+                        {presetPrompts.map((promptText, idx) => (
                             <button
+                                key={idx}
                                 type="button"
-                                className="clear-input-btn"
-                                onClick={() => setTask("")}
-                                title="Clear input"
+                                className="btn-preset-chip"
+                                onClick={() => setTaskInput(promptText)}
+                                disabled={loading}
                             >
-                                ✕
+                                {promptText}
                             </button>
+                        ))}
+                    </div>
+
+                    <button
+                        type="submit"
+                        className="btn-submit-decision"
+                        disabled={loading || !taskInput.trim()}
+                    >
+                        {loading ? (
+                            <span className="btn-loading">
+                                <span className="spinner-dot"></span>
+                                <span>Running Multi-Agent Graph...</span>
+                            </span>
+                        ) : (
+                            <span>Run Decision Engine →</span>
                         )}
-                    </div>
-
-                    <div className="examples-area">
-                        <span className="examples-label">
-                            💡 Try a curated business scenario:
-                        </span>
-
-                        <div className="example-chips-grid">
-                            {examples.map((item, index) => (
-                                <button
-                                    type="button"
-                                    key={index}
-                                    className={`example-chip ${task === item.text ? "active" : ""}`}
-                                    onClick={() => setTask(item.text)}
-                                    disabled={loading}
-                                >
-                                    <span className="chip-tag">{item.tag}</span>
-                                    <span className="chip-text">{item.text}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="form-submit-row">
-                        <span className="keyboard-hint">
-                            Press Ctrl + Enter to launch graph workflow
-                        </span>
-
-                        <button
-                            type="submit"
-                            className="btn-primary-gradient"
-                            disabled={loading || !task.trim()}
-                        >
-                            {loading ? (
-                                <span className="btn-spinner-state">
-                                    <span className="spinner-icon"></span>
-                                    <span>Orchestrating Graph Workflow...</span>
-                                </span>
-                            ) : (
-                                <span>Run Multi-Agent Engine →</span>
-                            )}
-                        </button>
-                    </div>
-                </form>
-            </div>
+                    </button>
+                </div>
+            </form>
         </section>
     );
 }

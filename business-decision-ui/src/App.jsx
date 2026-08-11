@@ -5,7 +5,7 @@ import Navbar from "./components/Navbar";
 import BusinessForm from "./components/BusinessForm";
 import WorkflowVisualizer from "./components/WorkflowVisualizer";
 import ReportViewer from "./components/ReportViewer";
-import HistoryModal from "./components/HistoryModal";
+import ReportLibraryModal from "./components/ReportLibraryModal";
 import MonitoringModal from "./components/MonitoringModal";
 
 function App() {
@@ -14,22 +14,23 @@ function App() {
     const [conversationId, setConversationId] = useState(null);
     const [loading, setLoading] = useState(false);
     const [reportError, setReportError] = useState(null);
+    const [quotaNotice, setQuotaNotice] = useState(null);
+    const [metrics, setMetrics] = useState({});
 
     // LangGraph Workflow Agent Statuses
     const [agentStatuses, setAgentStatuses] = useState({
-        tool: "QUEUED",
-        research: "QUEUED",
-        planning: "QUEUED",
-        decision: "QUEUED",
-        report: "QUEUED"
+        tool: "WAITING",
+        research: "WAITING",
+        planning: "WAITING",
+        decision: "WAITING",
+        report: "WAITING"
     });
 
-    // Modals & Active Tab
-    const [activeTab, setActiveTab] = useState("engine");
-    const [showHistory, setShowHistory] = useState(false);
+    // Modals
+    const [showLibrary, setShowLibrary] = useState(false);
     const [showMonitoring, setShowMonitoring] = useState(false);
 
-    // Sequential Follow-up Thread
+    // Follow-up Thread
     const [followupMessages, setFollowupMessages] = useState([]);
 
     const handleGenerate = async (task) => {
@@ -38,17 +39,19 @@ function App() {
         console.log("Launching LangGraph decision workflow for:", task);
         setLoading(true);
         setReportError(null);
+        setQuotaNotice(null);
         setReport(null);
         setBusinessTask(task.trim());
         setFollowupMessages([]);
         setConversationId(null);
+        setMetrics({});
 
         setAgentStatuses({
             tool: "RUNNING",
-            research: "QUEUED",
-            planning: "QUEUED",
-            decision: "QUEUED",
-            report: "QUEUED"
+            research: "WAITING",
+            planning: "WAITING",
+            decision: "WAITING",
+            report: "WAITING"
         });
 
         try {
@@ -61,6 +64,9 @@ function App() {
             if (response?.data?.success && response?.data?.report) {
                 setReport(response.data.report);
                 setConversationId(response.data.conversation_id);
+                if (response.data.quota_notice) {
+                    setQuotaNotice(response.data.quota_notice);
+                }
 
                 if (response.data.workflow?.agent_statuses) {
                     setAgentStatuses(response.data.workflow.agent_statuses);
@@ -73,15 +79,22 @@ function App() {
                         report: "COMPLETED"
                     });
                 }
+
+                if (response.data.workflow?.metrics) {
+                    setMetrics(response.data.workflow.metrics);
+                }
             } else {
                 const errMsg = response?.data?.error || "Failed to generate business report.";
                 setReportError(errMsg);
+                if (response?.data?.quota_notice) {
+                    setQuotaNotice(response.data.quota_notice);
+                }
             }
         } catch (error) {
             console.error("LANGGRAPH REPORT ERROR:", error);
             const errMsg =
                 error?.response?.data?.error ||
-                "Failed to generate the business report. Please check server connectivity or Gemini quota limits.";
+                "Failed to generate report. System is operating under quota protection.";
             setReportError(errMsg);
         } finally {
             setLoading(false);
@@ -133,7 +146,7 @@ function App() {
                 );
             } else {
                 const errMsg =
-                    response?.data?.error || "The AI Engine could not answer this question.";
+                    response?.data?.error || "Unable to answer follow-up question.";
 
                 setFollowupMessages((prev) =>
                     prev.map((msg) =>
@@ -147,7 +160,7 @@ function App() {
             console.error("LANGGRAPH FOLLOW-UP ERROR:", error);
             const errMsg =
                 error?.response?.data?.error ||
-                "Unable to process follow-up question. Please check server connectivity or quota limits.";
+                "Unable to process follow-up question. Previous report remains active.";
 
             setFollowupMessages((prev) =>
                 prev.map((msg) =>
@@ -159,17 +172,43 @@ function App() {
         }
     };
 
+    const handleSelectReportFromLibrary = ({ task, conversation_id, report, history }) => {
+        setBusinessTask(task);
+        setConversationId(conversation_id);
+        setReport(report);
+        setReportError(null);
+        setAgentStatuses({
+            tool: "COMPLETED",
+            research: "COMPLETED",
+            planning: "COMPLETED",
+            decision: "COMPLETED",
+            report: "COMPLETED"
+        });
+
+        if (Array.isArray(history)) {
+            const formattedMessages = history.map((item, idx) => ({
+                id: `history-${idx}`,
+                question: item.question,
+                answer: item.answer,
+                loading: false,
+                error: null
+            }));
+            setFollowupMessages(formattedMessages);
+        } else {
+            setFollowupMessages([]);
+        }
+    };
+
     return (
         <div className="app-shell">
             <Navbar
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                onOpenHistory={() => setShowHistory(true)}
+                onOpenLibrary={() => setShowLibrary(true)}
                 onOpenMonitoring={() => setShowMonitoring(true)}
+                quotaStatus={quotaNotice ? "demo" : "active"}
             />
 
             <main className="app-container">
-                {/* HERO & QUERY FORM */}
+                {/* HERO QUERY INPUT FORM */}
                 <BusinessForm
                     onGenerate={handleGenerate}
                     loading={loading}
@@ -179,31 +218,31 @@ function App() {
                 {/* LANGGRAPH WORKFLOW VISUALIZER */}
                 <WorkflowVisualizer
                     agentStatuses={agentStatuses}
+                    metrics={metrics}
                     isVisible={loading || !!report}
                 />
 
-                {/* EXECUTIVE REPORT & FOLLOW-UP CONVERSATION */}
+                {/* EXECUTIVE REPORT VIEWER & DYNAMIC FOLLOW-UP THREAD */}
                 <ReportViewer
                     report={report}
                     task={businessTask}
                     loading={loading}
                     error={reportError}
+                    quotaNotice={quotaNotice}
                     followupMessages={followupMessages}
                     onFollowup={handleFollowup}
                     onClearFollowup={() => setFollowupMessages([])}
                     onRetry={() => handleGenerate(businessTask)}
                 />
 
-                {/* DECISION LOG HISTORY MODAL */}
-                <HistoryModal
-                    isOpen={showHistory}
-                    onClose={() => setShowHistory(false)}
-                    onSelectTask={(selectedTask) => {
-                        handleGenerate(selectedTask);
-                    }}
+                {/* PERSISTENT SQLITE REPORT LIBRARY MODAL */}
+                <ReportLibraryModal
+                    isOpen={showLibrary}
+                    onClose={() => setShowLibrary(false)}
+                    onSelectReport={handleSelectReportFromLibrary}
                 />
 
-                {/* MONITORING & TELEMETRY MODAL */}
+                {/* AI SYSTEM MONITORING TELEMETRY MODAL */}
                 <MonitoringModal
                     isOpen={showMonitoring}
                     onClose={() => setShowMonitoring(false)}

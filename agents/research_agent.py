@@ -1,41 +1,14 @@
+import json
 from config import llm
 from prompts.research_prompt import RESEARCH_PROMPT
-from utils.llm_helper import invoke_with_retry
-
+from utils.gemini_client import gemini_client
 
 def research_agent(question):
-
-    full_prompt = f"""
-{RESEARCH_PROMPT}
-
-User Question:
-{question}
+    system_instruction = """
+You are a Market Research Agent. Provide concise, structured market insights.
+Return structured bullet points or JSON summary covering demand, competition, target audience, and risk.
 """
 
     print("[LLM] Research Agent call")
-    response = invoke_with_retry(llm, full_prompt)
-
-    content = response.content
-
-    # New Gemini/LangChain response format
-    if isinstance(content, list):
-
-        text_parts = []
-
-        for item in content:
-
-            if isinstance(item, dict):
-
-                if item.get("type") == "text":
-                    text_parts.append(item.get("text", ""))
-
-            elif isinstance(item, str):
-                text_parts.append(item)
-
-        return "\n".join(text_parts).strip()
-
-    # Normal string response
-    if isinstance(content, str):
-        return content.strip()
-
-    return str(content)
+    res = gemini_client.generate(f"{RESEARCH_PROMPT}\n\nQuestion: {question}", system_instruction=system_instruction)
+    return res.get("content", "").strip()
