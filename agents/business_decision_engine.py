@@ -1,22 +1,15 @@
 import time
 import os
-
 from dotenv import load_dotenv
-from google import genai
-from agents.suggest_followups_agent import suggest_followups_agent
 from memory.shared_memory import SharedMemory
 
 from agents.research_agent import research_agent
 from agents.planning_agent import planning_agent
 from agents.decision_agent import decision_agent
-
 from tools.tool_manager import execute_tool
 
 load_dotenv()
 
-client = genai.Client(
-    api_key=os.getenv("GOOGLE_API_KEY")
-)
 
 memory = SharedMemory()
 

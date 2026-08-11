@@ -1,5 +1,5 @@
 import re
-from config import llm
+from utils.gemini_client import gemini_client
 
 
 def suggest_followups_agent(task, research, planning, decision_result):
@@ -7,9 +7,9 @@ def suggest_followups_agent(task, research, planning, decision_result):
     Generates 3 to 5 short, specific follow-up questions tailored to the business report.
     Returns a list of clean question strings.
     """
-    prompt = f"""
-You are the Follow-up Recommendation Agent in an AI Business Decision Engine.
+    system_instruction = "You are the Follow-up Recommendation Agent in an AI Business Decision Engine. Return 3 to 5 clean question strings on separate lines."
 
+    prompt = f"""
 Based on the provided business problem and decision report, generate 3 to 5 short, highly specific follow-up questions that a decision-maker would plausibly ask about this exact report (e.g. about pricing, CAC, competitors, risk mitigation, execution timeline).
 
 Business Problem:
@@ -30,17 +30,8 @@ RULES:
 3. Do NOT include introductory text, explanations, or metadata.
 """
 
-    response = llm.invoke(prompt)
-    content = response.content
-
-    if isinstance(content, list):
-        text_parts = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                text_parts.append(item.get("text", ""))
-            elif isinstance(item, str):
-                text_parts.append(item)
-        content = "\n".join(text_parts)
+    res = gemini_client.generate(prompt, system_instruction=system_instruction)
+    content = res.get("content", "")
 
     lines = str(content).strip().split("\n")
     questions = []
@@ -49,18 +40,17 @@ RULES:
         line = line.strip()
         if not line:
             continue
-        # Clean leading numbers, bullets, spaces
         cleaned = re.sub(r"^[\d\.\-\*\s\)]+", "", line).strip()
         if cleaned and len(cleaned) > 5:
             questions.append(cleaned)
 
-    # Fallback if parsing returned less than 3
     if not questions:
         questions = [
-            "What should I do first?",
-            "What are the biggest risks?",
-            "How can I mitigate potential financial risks?",
-            "What is the recommended 30-day action plan?"
+            "Why is the market risk level medium?",
+            "How can we lower customer acquisition cost?",
+            "What happens if sales volume drops by 20%?",
+            "What are our top 3 execution priorities?"
         ]
 
     return questions[:5]
+

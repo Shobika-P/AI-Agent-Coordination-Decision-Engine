@@ -2,21 +2,148 @@ import { useState, useRef, useEffect } from "react";
 import API from "../services/api";
 import WhatIfPanel from "./WhatIfPanel";
 
-function safeString(value, fallback = "") {
-    if (value === null || value === undefined) return fallback;
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-    if (Array.isArray(value)) {
-        return value.map((item) => safeString(item)).join("\n");
-    }
-    if (typeof value === "object") {
+function safeParseJson(input) {
+    if (input === null || input === undefined) return input;
+    if (typeof input === "object") return input;
+    if (typeof input !== "string") return input;
+
+    const trimmed = input.trim();
+    if (
+        (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]"))
+    ) {
         try {
-            return JSON.stringify(value, null, 2);
+            return JSON.parse(trimmed);
         } catch {
-            return fallback;
+            return input;
         }
     }
+    return input;
+}
+
+function formatKeyLabel(key) {
+    if (!key) return "";
+    return String(key)
+        .replace(/_/g, " ")
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function safeString(value, fallback = "") {
+    if (value === null || value === undefined) return fallback;
+    const parsed = safeParseJson(value);
+    if (typeof parsed === "string") return parsed;
+    if (typeof parsed === "number" || typeof parsed === "boolean") return String(parsed);
+    if (Array.isArray(parsed)) {
+        return parsed.map((item) => safeString(item)).join("\n");
+    }
+    if (typeof parsed === "object") {
+        return toReadableText(parsed);
+    }
     return fallback;
+}
+
+function toReadableText(value, level = 0) {
+    if (value === null || value === undefined) return "";
+    const parsed = safeParseJson(value);
+
+    if (typeof parsed === "string") return parsed;
+    if (typeof parsed === "number" || typeof parsed === "boolean") return String(parsed);
+
+    const indent = "  ".repeat(level);
+
+    if (Array.isArray(parsed)) {
+        return parsed.map((item) => `${indent}• ${toReadableText(item, level + 1)}`).join("\n");
+    }
+
+    if (typeof parsed === "object") {
+        return Object.entries(parsed)
+            .map(([k, v]) => {
+                const label = formatKeyLabel(k);
+                const valText = toReadableText(v, level + 1);
+                const parsedV = safeParseJson(v);
+                if (typeof parsedV === "object" && parsedV !== null) {
+                    return `${indent}${label}:\n${valText}`;
+                }
+                return `${indent}${label}: ${valText}`;
+            })
+            .join("\n");
+    }
+
+    return String(parsed);
+}
+
+function StructuredDataRenderer({ value, depth = 0 }) {
+    if (value === null || value === undefined) return null;
+
+    const parsed = safeParseJson(value);
+
+    if (typeof parsed === "boolean" || typeof parsed === "number") {
+        return <span className="summary-text">{String(parsed)}</span>;
+    }
+
+    if (typeof parsed === "string") {
+        return <p className="summary-text">{parsed}</p>;
+    }
+
+    if (Array.isArray(parsed)) {
+        if (parsed.length === 0) return null;
+        return (
+            <ul className="structured-list">
+                {parsed.map((item, idx) => {
+                    const parsedItem = safeParseJson(item);
+                    return (
+                        <li key={idx} className="structured-list-item">
+                            {typeof parsedItem === "object" && parsedItem !== null ? (
+                                <StructuredDataRenderer value={parsedItem} depth={depth + 1} />
+                            ) : (
+                                <span>{safeString(parsedItem)}</span>
+                            )}
+                        </li>
+                    );
+                })}
+            </ul>
+        );
+    }
+
+    if (typeof parsed === "object") {
+        const entries = Object.entries(parsed);
+        if (entries.length === 0) return null;
+
+        return (
+            <div className={`structured-object-card depth-${depth}`}>
+                {entries.map(([key, val]) => {
+                    const label = formatKeyLabel(key);
+                    const parsedVal = safeParseJson(val);
+                    const isPrimitive =
+                        typeof parsedVal === "string" ||
+                        typeof parsedVal === "number" ||
+                        typeof parsedVal === "boolean";
+                    const isRiskKey =
+                        key.toLowerCase().includes("risk") &&
+                        typeof parsedVal === "string" &&
+                        ["low", "medium", "high"].includes(parsedVal.toLowerCase());
+
+                    return (
+                        <div key={key} className="structured-field-block">
+                            <h5 className="field-label">{label}</h5>
+                            {isRiskKey ? (
+                                <span className={`risk-pill-badge risk-badge-${parsedVal.toLowerCase()}`}>
+                                    {parsedVal.toUpperCase()} RISK
+                                </span>
+                            ) : isPrimitive ? (
+                                <p className="field-value-text">{String(parsedVal)}</p>
+                            ) : (
+                                <StructuredDataRenderer value={parsedVal} depth={depth + 1} />
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    return <span className="summary-text">{String(parsed)}</span>;
 }
 
 function ReportViewer({
@@ -57,13 +184,15 @@ function ReportViewer({
         "What are our top 3 execution priorities?"
     ];
 
+    const parsedReport = safeParseJson(report);
+
     const handleExport = async (format) => {
         setShowExportMenu(false);
 
         if (format === "copy") {
-            const decisionText = safeString(report?.decision);
-            const riskText = safeString(dynamicRisk || report?.risk_level || report?.tool_analysis?.risk_level, "Medium");
-            const copyContent = `ENTERPRISE AI DECISION REPORT\nQuery: ${task}\nRisk Level: ${riskText}\nViability Score: ${dynamicViability || report?.viability_score || 78}/100\n\n${decisionText}`;
+            const decisionText = toReadableText(parsedReport?.decision || parsedReport);
+            const riskText = safeString(dynamicRisk || parsedReport?.risk_level || parsedReport?.tool_analysis?.risk_level, "Medium");
+            const copyContent = `ENTERPRISE AI DECISION REPORT\nQuery: ${task}\nRisk Level: ${riskText}\nViability Score: ${dynamicViability || parsedReport?.viability_score || 78}/100\n\n${decisionText}`;
             navigator.clipboard.writeText(copyContent);
             setToastMsg("Report copied to clipboard!");
             setTimeout(() => setToastMsg(""), 3000);
@@ -81,8 +210,8 @@ function ReportViewer({
                 "/export-report",
                 {
                     task: task || "Business Decision Query",
-                    report: report,
-                    conversation_history: followupMessages.map(m => ({ question: m.question, answer: m.answer })),
+                    report: parsedReport,
+                    conversation_history: followupMessages.map((m) => ({ question: m.question, answer: toReadableText(m.answer) })),
                     format: format
                 },
                 { responseType: format === "pdf" ? "blob" : "text" }
@@ -99,7 +228,10 @@ function ReportViewer({
                 a.remove();
                 window.URL.revokeObjectURL(url);
             } else if (format === "json") {
-                const blob = new Blob([typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2)], { type: "application/json" });
+                const blob = new Blob(
+                    [typeof response.data === "string" ? response.data : JSON.stringify(response.data, null, 2)],
+                    { type: "application/json" }
+                );
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
@@ -127,16 +259,31 @@ function ReportViewer({
         }
     };
 
-    if (loading) return null;
+    if (loading) {
+        return (
+            <section className="report-container">
+                <div className="empty-state-card">
+                    <span className="spinner-dot" style={{ width: "24px", height: "24px", borderWidth: "3px" }}></span>
+                    <h3 style={{ marginTop: "16px", color: "var(--text-main)", fontSize: "20px" }}>
+                        Analyzing Business Decision...
+                    </h3>
+                    <p>
+                        LangGraph multi-agent orchestration graph is running quantitative models, market research,
+                        and decision intelligence synthesis.
+                    </p>
+                </div>
+            </section>
+        );
+    }
 
-    if (error && !report) {
+    if (error && !parsedReport) {
         return (
             <section className="report-container">
                 <div className="error-card">
                     <div className="error-icon">⚠️</div>
                     <h3>Analysis Could Not Be Completed</h3>
                     <p>{safeString(error, "An unexpected error occurred.")}</p>
-                    <span className="error-hint">System is protected by automatic DEMO/CACHE mode. Click below to retry.</span>
+                    <span className="error-hint">System is protected by automatic DEMO/CACHE fallback.</span>
                     {onRetry && (
                         <button className="btn-retry-action" onClick={onRetry} style={{ marginTop: "16px" }}>
                             🔄 Retry Request
@@ -147,13 +294,13 @@ function ReportViewer({
         );
     }
 
-    if (!report) {
+    if (!parsedReport) {
         return (
             <section className="report-container empty-state-card">
                 <div className="empty-badge">ENTERPRISE DECISION WORKSPACE</div>
                 <h2>Awaiting Business Query</h2>
                 <p>
-                    Submit a strategic business problem above to initiate autonomous multi-agent analysis,
+                    Submit a strategic business question above to initiate autonomous multi-agent analysis,
                     risk modeling, financial tool calculations, and decision intelligence.
                 </p>
                 <div className="empty-features-grid">
@@ -182,12 +329,14 @@ function ReportViewer({
         );
     }
 
-    const decisionText = safeString(report.decision);
-    const viabilityScore = dynamicViability || report.viability_score || 78;
-    const confidenceScore = report.confidence || 82;
+    const isObjReport = typeof parsedReport === "object" && parsedReport !== null;
+
+    const viabilityScore = dynamicViability || (isObjReport ? parsedReport.viability_score : null) || 78;
+    const confidenceScore = (isObjReport ? parsedReport.confidence : null) || 82;
 
     const riskLevelStr = safeString(
-        dynamicRisk || report.risk_level || report.tool_analysis?.risk_level,
+        dynamicRisk ||
+            (isObjReport ? parsedReport.risk_level || parsedReport.tool_analysis?.risk_level : null),
         "Medium"
     );
     const normalizedRisk = riskLevelStr.toLowerCase();
@@ -197,6 +346,30 @@ function ReportViewer({
             : normalizedRisk === "high"
             ? "risk-badge-high"
             : "risk-badge-medium";
+
+    const decisionValue = isObjReport ? parsedReport.decision : parsedReport;
+    const whyThisDecision = isObjReport && Array.isArray(parsedReport.why_this_decision) ? parsedReport.why_this_decision : [];
+    const keyRisks = isObjReport && Array.isArray(parsedReport.key_risks) ? parsedReport.key_risks : [];
+    const keyOpportunities = isObjReport && Array.isArray(parsedReport.key_opportunities) ? parsedReport.key_opportunities : [];
+    const toolAnalysis = isObjReport ? parsedReport.tool_analysis : null;
+
+    // Filter dynamic extra properties for custom AI outputs
+    const knownKeys = new Set([
+        "decision",
+        "viability_score",
+        "confidence",
+        "risk_level",
+        "why_this_decision",
+        "key_risks",
+        "key_opportunities",
+        "tool_analysis",
+        "title",
+        "task"
+    ]);
+
+    const extraKeys = isObjReport
+        ? Object.keys(parsedReport).filter((k) => !knownKeys.has(k))
+        : [];
 
     const isAnyFollowupLoading = followupMessages.some((msg) => msg.loading);
 
@@ -305,16 +478,39 @@ function ReportViewer({
                         </div>
                     </div>
                     <div className="summary-card-body">
-                        <p className="summary-text">{decisionText}</p>
+                        <StructuredDataRenderer value={decisionValue} />
                     </div>
                 </div>
 
+                {/* DYNAMIC EXTRA REPORT SECTIONS */}
+                {extraKeys.length > 0 && (
+                    <div className="report-section-block">
+                        <div className="section-header-title">
+                            <span className="section-num">✦</span>
+                            <div>
+                                <small className="section-tag">STRUCTURED ANALYSIS</small>
+                                <h3 className="section-heading">Detailed Insights & Metrics</h3>
+                            </div>
+                        </div>
+                        <div className="summary-card-body">
+                            {extraKeys.map((key) => (
+                                <div key={key} style={{ marginBottom: "16px" }}>
+                                    <h4 className="field-label" style={{ marginBottom: "8px" }}>
+                                        {formatKeyLabel(key)}
+                                    </h4>
+                                    <StructuredDataRenderer value={parsedReport[key]} />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* WHY THIS DECISION DRIVERS */}
-                {Array.isArray(report.why_this_decision) && report.why_this_decision.length > 0 && (
+                {whyThisDecision.length > 0 && (
                     <div className="report-section-block">
                         <h4 className="drivers-title">Why This Decision?</h4>
                         <div className="drivers-grid">
-                            {report.why_this_decision.map((driver, idx) => (
+                            {whyThisDecision.map((driver, idx) => (
                                 <div key={idx} className="driver-chip-item">
                                     <span className="driver-icon">✓</span>
                                     <span className="driver-text">{safeString(driver)}</span>
@@ -325,26 +521,29 @@ function ReportViewer({
                 )}
 
                 {/* RISKS & OPPORTUNITIES GRID */}
-                {((Array.isArray(report.key_risks) && report.key_risks.length > 0) ||
-                    (Array.isArray(report.key_opportunities) && report.key_opportunities.length > 0)) && (
+                {(keyRisks.length > 0 || keyOpportunities.length > 0) && (
                     <div className="risks-opportunities-grid">
-                        {Array.isArray(report.key_risks) && report.key_risks.length > 0 && (
+                        {keyRisks.length > 0 && (
                             <div className="risk-box-card">
                                 <h4 className="box-heading risk">⚠️ Key Risks</h4>
                                 <ul>
-                                    {report.key_risks.map((riskItem, idx) => (
-                                        <li key={idx}>{safeString(riskItem)}</li>
+                                    {keyRisks.map((riskItem, idx) => (
+                                        <li key={idx}>
+                                            <StructuredDataRenderer value={riskItem} />
+                                        </li>
                                     ))}
                                 </ul>
                             </div>
                         )}
 
-                        {Array.isArray(report.key_opportunities) && report.key_opportunities.length > 0 && (
+                        {keyOpportunities.length > 0 && (
                             <div className="opportunity-box-card">
                                 <h4 className="box-heading opportunity">✦ Key Opportunities</h4>
                                 <ul>
-                                    {report.key_opportunities.map((oppItem, idx) => (
-                                        <li key={idx}>{safeString(oppItem)}</li>
+                                    {keyOpportunities.map((oppItem, idx) => (
+                                        <li key={idx}>
+                                            <StructuredDataRenderer value={oppItem} />
+                                        </li>
                                     ))}
                                 </ul>
                             </div>
@@ -353,7 +552,7 @@ function ReportViewer({
                 )}
 
                 {/* QUANTITATIVE TOOL ANALYSIS */}
-                {report.tool_analysis && (
+                {toolAnalysis && (
                     <div className="report-section-block">
                         <div className="section-header-title">
                             <span className="section-num">02</span>
@@ -366,22 +565,22 @@ function ReportViewer({
                         <div className="tool-metric-cards-grid">
                             <div className="tool-metric-card">
                                 <small>EXECUTED TOOL</small>
-                                <h4>{safeString(report.tool_analysis.tool_name || report.tool_analysis.tool, "Market Risk Tool")}</h4>
+                                <h4>{safeString(toolAnalysis.tool_name || toolAnalysis.tool, "Market Risk Tool")}</h4>
                             </div>
                             <div className="tool-metric-card">
                                 <small>TOOL RATING</small>
-                                <h4 className={riskBadgeClass}>{safeString(report.tool_analysis.risk_level, riskLevelStr)}</h4>
+                                <h4 className={riskBadgeClass}>{safeString(toolAnalysis.risk_level, riskLevelStr)}</h4>
                             </div>
                         </div>
 
-                        {Array.isArray(report.tool_analysis.observations) &&
-                            report.tool_analysis.observations.length > 0 && (
+                        {Array.isArray(toolAnalysis.observations) &&
+                            toolAnalysis.observations.length > 0 && (
                                 <div className="observations-list-box">
                                     <h5 className="obs-title">Observations</h5>
-                                    {report.tool_analysis.observations.map((obs, idx) => (
-                                        <p key={idx} className="obs-item">
-                                            <span>•</span> {safeString(obs)}
-                                        </p>
+                                    {toolAnalysis.observations.map((obs, idx) => (
+                                        <div key={idx} className="obs-item">
+                                            <StructuredDataRenderer value={obs} />
+                                        </div>
                                     ))}
                                 </div>
                             )}
@@ -498,10 +697,10 @@ function ReportViewer({
 
                                     {msg.answer && !msg.loading && (
                                         <div className="ai-answer-content">
-                                            <p>{safeString(msg.answer)}</p>
+                                            <StructuredDataRenderer value={msg.answer} />
                                             <button
                                                 className="btn-copy-inline"
-                                                onClick={() => navigator.clipboard.writeText(safeString(msg.answer))}
+                                                onClick={() => navigator.clipboard.writeText(toReadableText(msg.answer))}
                                             >
                                                 📋 Copy
                                             </button>

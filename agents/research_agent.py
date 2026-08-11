@@ -1,7 +1,7 @@
 import json
-from config import llm
 from prompts.research_prompt import RESEARCH_PROMPT
 from utils.gemini_client import gemini_client
+
 
 def research_agent(question):
     system_instruction = """

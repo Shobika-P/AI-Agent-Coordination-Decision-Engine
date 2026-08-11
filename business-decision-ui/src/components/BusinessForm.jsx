@@ -1,7 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 function BusinessForm({ onGenerate, loading, initialTask }) {
     const [taskInput, setTaskInput] = useState(initialTask || "");
+
+    useEffect(() => {
+        if (initialTask) {
+            setTaskInput(initialTask);
+        }
+    }, [initialTask]);
 
     const presetPrompts = [
         "Should we launch personalized phone cases online?",
@@ -40,7 +46,7 @@ function BusinessForm({ onGenerate, loading, initialTask }) {
 
                 <div className="form-bottom-bar">
                     <div className="preset-prompts-flex">
-                        <small className="presets-label">Preset Scenarios:</small>
+                        <span className="presets-label">Preset Scenarios:</span>
                         {presetPrompts.map((promptText, idx) => (
                             <button
                                 key={idx}
@@ -62,7 +68,7 @@ function BusinessForm({ onGenerate, loading, initialTask }) {
                         {loading ? (
                             <span className="btn-loading">
                                 <span className="spinner-dot"></span>
-                                <span>Running Multi-Agent Graph...</span>
+                                <span>Analyzing Business Decision...</span>
                             </span>
                         ) : (
                             <span>Run Decision Engine →</span>

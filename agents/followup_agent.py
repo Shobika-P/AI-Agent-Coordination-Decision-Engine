@@ -1,6 +1,6 @@
 import json
-from config import llm
 from utils.gemini_client import gemini_client
+
 
 def followup_agent(
     original_task,

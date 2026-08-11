@@ -1,6 +1,6 @@
-from config import llm
 from prompts.planning_prompt import PLANNING_PROMPT
 from utils.gemini_client import gemini_client
+
 
 def planning_agent(task, research):
     system_instruction = """

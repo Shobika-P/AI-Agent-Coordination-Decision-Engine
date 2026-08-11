@@ -1,7 +1,7 @@
 import json
-from config import llm
 from prompts.decision_prompt import DECISION_PROMPT
 from utils.gemini_client import gemini_client
+
 
 def decision_agent(
     task,
