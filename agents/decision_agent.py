@@ -32,8 +32,39 @@ Return ONLY a valid JSON object matching this schema:
   "key_opportunities": [
     "<Strategic upside opportunity 1>",
     "<Strategic upside opportunity 2>"
-  ]
+  ],
+  "recommended_decision": "<Clear actionable recommendation statement>",
+  "implementation_roadmap": [
+    {
+      "phase": "Phase 1 — Validate",
+      "steps": ["<Validate step 1>", "<Validate step 2>", "<Validate step 3>"]
+    },
+    {
+      "phase": "Phase 2 — Pilot",
+      "steps": ["<Pilot step 1>", "<Pilot step 2>", "<Pilot step 3>"]
+    },
+    {
+      "phase": "Phase 3 — Measure",
+      "steps": ["<Measure step 1>", "<Measure step 2>", "<Measure step 3>"]
+    },
+    {
+      "phase": "Phase 4 — Scale",
+      "steps": ["<Scale step 1>", "<Scale step 2>"]
+    }
+  ],
+  "success_metrics": [
+    "Monthly Subscribers / Customers: >150",
+    "Customer Retention Rate: >70%",
+    "CAC Target: <₹100",
+    "Monthly Net Profit: >₹20,000"
+  ],
+  "conditions_and_assumptions": [
+    "<Key operational condition or baseline assumption 1>",
+    "<Key operational condition or baseline assumption 2>"
+  ],
+  "conclusion": "<Synthesized strategic concluding summary paragraph>"
 }
+Do NOT use hard-coded generic business steps. Generate phases and steps specifically relevant to the user's business question.
 """
 
     user_prompt = f"""
@@ -89,6 +120,52 @@ Previous Decisions:
         ],
         "key_opportunities": [
             "High margin potential upon reaching scale",
-            "First-mover advantage in niche segment"
-        ]
-    }
+            "First-mover advantage in target niche segment"
+        ],
+        "recommended_decision": "RECOMMEND LAUNCH WITH CONDITIONS: Proceed with controlled phased rollout while validating unit economics.",
+        "implementation_roadmap": [
+            {
+                "phase": "Phase 1 — Validate",
+                "steps": [
+                    "Validate target customer demand in primary market segment",
+                    "Test pricing tiers and baseline customer willingness to pay",
+                    "Conduct targeted competitive benchmarking"
+                ]
+            },
+            {
+                "phase": "Phase 2 — Pilot",
+                "steps": [
+                    "Launch controlled pilot with initial customer cohort",
+                    "Monitor real customer feedback and usage patterns",
+                    "Track customer acquisition cost (CAC) and early retention"
+                ]
+            },
+            {
+                "phase": "Phase 3 — Measure",
+                "steps": [
+                    "Compare actual unit performance against expected financial models",
+                    "Monitor gross margin and monthly net profitability",
+                    "Identify key operational bottlenecks and financial risks"
+                ]
+            },
+            {
+                "phase": "Phase 4 — Scale",
+                "steps": [
+                    "Expand marketing budget and operational scale only if key viability metrics are met"
+                ]
+            }
+        ],
+        "success_metrics": [
+            "Monthly Customers / Volume: 150+ units",
+            "Customer Retention Rate: >70%",
+            "Target CAC: <₹100",
+            "Projected Monthly Profit: >₹20,000"
+        ],
+        "conditions_and_assumptions": [
+            "Fixed overhead stays within projected monthly budget",
+            "Customer acquisition cost remains below critical break-even threshold",
+            "Market demand maintains positive growth trajectory"
+        ],
+        "conclusion": "The proposed business decision demonstrates strong strategic viability under a controlled, phased execution framework."
+    }
+

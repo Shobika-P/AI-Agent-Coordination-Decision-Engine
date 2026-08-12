@@ -204,6 +204,40 @@ def follow_up():
         }), 200
 
 
+def format_inr(val, include_symbol=True):
+    try:
+        val = float(val)
+        is_neg = val < 0
+        val = abs(val)
+        if val.is_integer():
+            s = f"{int(val)}"
+        else:
+            s = f"{val:,.2f}"
+            
+        if '.' in s:
+            int_part, dec_part = s.split('.')
+        else:
+            int_part, dec_part = s, None
+            
+        int_part = int_part.replace(',', '')
+        if len(int_part) > 3:
+            last3 = int_part[-3:]
+            other = int_part[:-3]
+            res = ""
+            while len(other) > 2:
+                res = "," + other[-2:] + res
+                other = other[:-2]
+            formatted_int = other + res + "," + last3
+        else:
+            formatted_int = int_part
+            
+        final_num = f"{formatted_int}.{dec_part}" if dec_part else formatted_int
+        prefix = "-₹" if is_neg else ("₹" if include_symbol else "")
+        return f"{prefix}{final_num}"
+    except:
+        return f"₹{val}" if include_symbol else str(val)
+
+
 # ============================================================
 # WHAT-IF SENSITIVITY ANALYSIS
 # ============================================================
@@ -241,9 +275,9 @@ def what_if_analysis():
             updated_risk = "High"
 
         explanation = (
-            f"At ${price:,.2f} unit price and {monthly_orders:,.0f} monthly orders, projected monthly revenue is ${revenue:,.2f}. "
-            f"After accounting for monthly fixed cost (${fixed_cost:,.2f}), variable costs (${monthly_variable:,.2f}), and marketing (${marketing_cost:,.2f}), "
-            f"the projected monthly net profit is ${monthly_profit:,.2f} with a break-even point of {be_units:,} units."
+            f"At {format_inr(price)} unit price and {format_inr(monthly_orders, include_symbol=False)} monthly orders, projected monthly revenue is {format_inr(revenue)}. "
+            f"After accounting for monthly fixed cost ({format_inr(fixed_cost)}), variable costs ({format_inr(monthly_variable)}), and marketing ({format_inr(marketing_cost)}), "
+            f"the projected monthly net profit is {format_inr(monthly_profit)} with a break-even point of {format_inr(be_units, include_symbol=False)} units."
         )
 
         return jsonify({
@@ -361,12 +395,12 @@ def rerun_decision_stage():
             "tool_name": "Adjusted Assumptions Tool",
             "risk_level": tool_risk,
             "observations": [
-                f"Adjusted Selling Price: ${price:,.2f} / unit",
-                f"Monthly Volume Target: {monthly_orders:,.0f} units",
-                f"Projected Monthly Profit: ${profit:,.2f}",
-                f"Break-even Volume: {be_units:,} units"
+                f"Adjusted Selling Price: {format_inr(price)} / unit",
+                f"Monthly Volume Target: {format_inr(monthly_orders, include_symbol=False)} units",
+                f"Projected Monthly Profit: {format_inr(profit)}",
+                f"Break-even Volume: {format_inr(be_units, include_symbol=False)} units"
             ],
-            "recommendation": f"At ${price} price and {monthly_orders} units volume, the business generates ${profit:,.2f} monthly net profit."
+            "recommendation": f"At {format_inr(price)} price and {format_inr(monthly_orders, include_symbol=False)} units volume, the business generates {format_inr(profit)} monthly net profit."
         }
 
         # 2. Fetch or load research and planning context

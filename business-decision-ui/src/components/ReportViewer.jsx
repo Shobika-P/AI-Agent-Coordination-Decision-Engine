@@ -351,6 +351,11 @@ function ReportViewer({
     const whyThisDecision = isObjReport && Array.isArray(parsedReport.why_this_decision) ? parsedReport.why_this_decision : [];
     const keyRisks = isObjReport && Array.isArray(parsedReport.key_risks) ? parsedReport.key_risks : [];
     const keyOpportunities = isObjReport && Array.isArray(parsedReport.key_opportunities) ? parsedReport.key_opportunities : [];
+    const recommendedDecision = isObjReport ? (parsedReport.recommended_decision || parsedReport.recommendation_title) : "";
+    const implementationRoadmap = isObjReport && Array.isArray(parsedReport.implementation_roadmap) ? parsedReport.implementation_roadmap : [];
+    const successMetrics = isObjReport && Array.isArray(parsedReport.success_metrics) ? parsedReport.success_metrics : [];
+    const conditionsAndAssumptions = isObjReport && Array.isArray(parsedReport.conditions_and_assumptions) ? parsedReport.conditions_and_assumptions : [];
+    const conclusionText = isObjReport ? parsedReport.conclusion : "";
     const toolAnalysis = isObjReport ? parsedReport.tool_analysis : null;
 
     // Filter dynamic extra properties for custom AI outputs
@@ -363,13 +368,16 @@ function ReportViewer({
         "key_risks",
         "key_opportunities",
         "tool_analysis",
+        "recommended_decision",
+        "recommendation_title",
+        "implementation_roadmap",
+        "success_metrics",
+        "conditions_and_assumptions",
+        "conclusion",
+        "execution_metrics",
         "title",
         "task"
     ]);
-
-    const extraKeys = isObjReport
-        ? Object.keys(parsedReport).filter((k) => !knownKeys.has(k))
-        : [];
 
     const isAnyFollowupLoading = followupMessages.some((msg) => msg.loading);
 
@@ -468,13 +476,13 @@ function ReportViewer({
                     </div>
                 </div>
 
-                {/* EXECUTIVE SUMMARY BLOCK */}
+                {/* 01. EXECUTIVE SUMMARY BLOCK */}
                 <div className="report-section-block">
                     <div className="section-header-title">
                         <span className="section-num">01</span>
                         <div>
                             <small className="section-tag">EXECUTIVE RECOMMENDATION</small>
-                            <h3 className="section-heading">Strategic Summary</h3>
+                            <h3 className="section-heading">Executive Summary</h3>
                         </div>
                     </div>
                     <div className="summary-card-body">
@@ -482,33 +490,10 @@ function ReportViewer({
                     </div>
                 </div>
 
-                {/* DYNAMIC EXTRA REPORT SECTIONS */}
-                {extraKeys.length > 0 && (
-                    <div className="report-section-block">
-                        <div className="section-header-title">
-                            <span className="section-num">✦</span>
-                            <div>
-                                <small className="section-tag">STRUCTURED ANALYSIS</small>
-                                <h3 className="section-heading">Detailed Insights & Metrics</h3>
-                            </div>
-                        </div>
-                        <div className="summary-card-body">
-                            {extraKeys.map((key) => (
-                                <div key={key} style={{ marginBottom: "16px" }}>
-                                    <h4 className="field-label" style={{ marginBottom: "8px" }}>
-                                        {formatKeyLabel(key)}
-                                    </h4>
-                                    <StructuredDataRenderer value={parsedReport[key]} />
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* WHY THIS DECISION DRIVERS */}
+                {/* 02. STRATEGIC DRIVERS / WHY THIS DECISION */}
                 {whyThisDecision.length > 0 && (
                     <div className="report-section-block">
-                        <h4 className="drivers-title">Why This Decision?</h4>
+                        <h4 className="drivers-title">Strategic Drivers (Why This Decision?)</h4>
                         <div className="drivers-grid">
                             {whyThisDecision.map((driver, idx) => (
                                 <div key={idx} className="driver-chip-item">
@@ -520,12 +505,12 @@ function ReportViewer({
                     </div>
                 )}
 
-                {/* RISKS & OPPORTUNITIES GRID */}
+                {/* 03 & 04. RISKS & OPPORTUNITIES GRID */}
                 {(keyRisks.length > 0 || keyOpportunities.length > 0) && (
                     <div className="risks-opportunities-grid">
                         {keyRisks.length > 0 && (
                             <div className="risk-box-card">
-                                <h4 className="box-heading risk">⚠️ Key Risks</h4>
+                                <h4 className="box-heading risk">⚠️ Key Risk Factors</h4>
                                 <ul>
                                     {keyRisks.map((riskItem, idx) => (
                                         <li key={idx}>
@@ -538,7 +523,7 @@ function ReportViewer({
 
                         {keyOpportunities.length > 0 && (
                             <div className="opportunity-box-card">
-                                <h4 className="box-heading opportunity">✦ Key Opportunities</h4>
+                                <h4 className="box-heading opportunity">✦ Strategic Opportunities</h4>
                                 <ul>
                                     {keyOpportunities.map((oppItem, idx) => (
                                         <li key={idx}>
@@ -551,11 +536,104 @@ function ReportViewer({
                     </div>
                 )}
 
+                {/* 05. RECOMMENDED DECISION STATEMENT */}
+                {recommendedDecision && (
+                    <div className="report-section-block">
+                        <div className="recommended-decision-card" style={{ background: "rgba(37, 99, 235, 0.08)", border: "1px solid rgba(37, 99, 235, 0.25)", borderRadius: "8px", padding: "16px 20px" }}>
+                            <small style={{ color: "var(--accent-color, #3b82f6)", fontSize: "11px", fontWeight: "700", letterSpacing: "1px", textTransform: "uppercase" }}>RECOMMENDED DECISION</small>
+                            <h4 style={{ color: "var(--text-main, #f3f4f6)", fontSize: "16px", fontWeight: "700", marginTop: "4px", marginBottom: 0 }}>{safeString(recommendedDecision)}</h4>
+                        </div>
+                    </div>
+                )}
+
+                {/* 06. IMPLEMENTATION ROADMAP */}
+                {Array.isArray(implementationRoadmap) && implementationRoadmap.length > 0 && (
+                    <div className="report-section-block">
+                        <div className="section-header-title">
+                            <span className="section-num">02</span>
+                            <div>
+                                <small className="section-tag">EXECUTION ROADMAP</small>
+                                <h3 className="section-heading">Implementation Roadmap</h3>
+                            </div>
+                        </div>
+                        <div className="roadmap-phases-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px", marginTop: "12px" }}>
+                            {implementationRoadmap.map((item, idx) => (
+                                <div key={idx} className="roadmap-phase-card" style={{ background: "var(--bg-card, #111827)", border: "1px solid var(--border-color, #1f2937)", borderRadius: "8px", padding: "16px" }}>
+                                    <h4 style={{ color: "var(--accent-color, #3b82f6)", fontSize: "14px", fontWeight: "700", marginBottom: "10px", borderBottom: "1px solid var(--border-color, #374151)", paddingBottom: "6px" }}>
+                                        {safeString(item.phase || item.title || `Phase ${idx + 1}`)}
+                                    </h4>
+                                    {Array.isArray(item.steps) ? (
+                                        <ul style={{ paddingLeft: "16px", margin: 0, fontSize: "13px", color: "var(--text-secondary, #9ca3af)", display: "flex", flexDirection: "column", gap: "6px" }}>
+                                            {item.steps.map((step, sIdx) => (
+                                                <li key={sIdx}>{safeString(step)}</li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <p style={{ fontSize: "13px", color: "var(--text-secondary, #9ca3af)", margin: 0 }}>{safeString(item.steps || item.description)}</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* 07. SUCCESS METRICS */}
+                {Array.isArray(successMetrics) && successMetrics.length > 0 && (
+                    <div className="report-section-block">
+                        <div className="section-header-title">
+                            <span className="section-num">03</span>
+                            <div>
+                                <small className="section-tag">TARGET BENCHMARKS</small>
+                                <h3 className="section-heading">Success Metrics</h3>
+                            </div>
+                        </div>
+                        <div className="success-metrics-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginTop: "12px" }}>
+                            {successMetrics.map((metric, idx) => (
+                                <div key={idx} className="metric-chip-card" style={{ background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: "8px", padding: "12px 16px", display: "flex", alignItems: "center", gap: "10px" }}>
+                                    <span style={{ color: "#10b981", fontWeight: "bold" }}>🎯</span>
+                                    <span style={{ fontSize: "13.5px", fontWeight: "600", color: "var(--text-main, #f3f4f6)" }}>{safeString(metric)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* 08. CONDITIONS & ASSUMPTIONS */}
+                {Array.isArray(conditionsAndAssumptions) && conditionsAndAssumptions.length > 0 && (
+                    <div className="report-section-block">
+                        <h4 className="drivers-title" style={{ color: "#eab308" }}>Conditions & Baseline Assumptions</h4>
+                        <div className="drivers-grid">
+                            {conditionsAndAssumptions.map((cond, idx) => (
+                                <div key={idx} className="driver-chip-item" style={{ borderColor: "rgba(234, 179, 8, 0.3)", background: "rgba(234, 179, 8, 0.05)" }}>
+                                    <span className="driver-icon" style={{ color: "#eab308" }}>📌</span>
+                                    <span className="driver-text">{safeString(cond)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* 09. CONCLUSION */}
+                {conclusionText && (
+                    <div className="report-section-block">
+                        <div className="section-header-title">
+                            <span className="section-num">✦</span>
+                            <div>
+                                <small className="section-tag">FINAL SYNTHESIS</small>
+                                <h3 className="section-heading">Conclusion</h3>
+                            </div>
+                        </div>
+                        <div className="summary-card-body">
+                            <p className="summary-text">{safeString(conclusionText)}</p>
+                        </div>
+                    </div>
+                )}
+
                 {/* QUANTITATIVE TOOL ANALYSIS */}
                 {toolAnalysis && (
                     <div className="report-section-block">
                         <div className="section-header-title">
-                            <span className="section-num">02</span>
+                            <span className="section-num">04</span>
                             <div>
                                 <small className="section-tag">QUANTITATIVE MODELING</small>
                                 <h3 className="section-heading">Business Tool Analysis</h3>

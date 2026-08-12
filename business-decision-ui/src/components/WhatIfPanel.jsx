@@ -60,7 +60,7 @@ function WhatIfPanel({ task, onUpdateMetrics }) {
                 <div className="what-if-body">
                     <div className="controls-grid">
                         <div className="input-group-field">
-                            <label>Product Selling Price ($)</label>
+                            <label>Product Selling Price (₹)</label>
                             <input
                                 type="number"
                                 value={price}
@@ -82,7 +82,7 @@ function WhatIfPanel({ task, onUpdateMetrics }) {
                         </div>
 
                         <div className="input-group-field">
-                            <label>Monthly Marketing Budget ($)</label>
+                            <label>Monthly Marketing Budget (₹)</label>
                             <input
                                 type="number"
                                 value={marketingCost}
@@ -93,7 +93,7 @@ function WhatIfPanel({ task, onUpdateMetrics }) {
                         </div>
 
                         <div className="input-group-field">
-                            <label>Customer Acquisition Cost CAC ($)</label>
+                            <label>Customer Acquisition Cost (₹)</label>
                             <input
                                 type="number"
                                 value={cac}
@@ -104,7 +104,7 @@ function WhatIfPanel({ task, onUpdateMetrics }) {
                         </div>
 
                         <div className="input-group-field">
-                            <label>Fixed Monthly Cost ($)</label>
+                            <label>Fixed Monthly Cost (₹)</label>
                             <input
                                 type="number"
                                 value={fixedCost}
@@ -115,7 +115,7 @@ function WhatIfPanel({ task, onUpdateMetrics }) {
                         </div>
 
                         <div className="input-group-field">
-                            <label>Variable Unit Cost ($)</label>
+                            <label>Variable Unit Cost (₹)</label>
                             <input
                                 type="number"
                                 value={variableCost}
@@ -153,12 +153,12 @@ function WhatIfPanel({ task, onUpdateMetrics }) {
                                 <div className="metric-box">
                                     <small>PROJECTED MONTHLY PROFIT</small>
                                     <h4 className={result.monthly_profit >= 0 ? "profit-positive" : "profit-negative"}>
-                                        ${result.monthly_profit?.toLocaleString()}
+                                        {result.monthly_profit < 0 ? `-₹${Math.abs(result.monthly_profit)?.toLocaleString('en-IN')}` : `₹${result.monthly_profit?.toLocaleString('en-IN')}`}
                                     </h4>
                                 </div>
                                 <div className="metric-box">
                                     <small>BREAK-EVEN UNITS</small>
-                                    <h4>{result.break_even_units?.toLocaleString()} units</h4>
+                                    <h4>{result.break_even_units?.toLocaleString('en-IN')} units</h4>
                                 </div>
                             </div>
 

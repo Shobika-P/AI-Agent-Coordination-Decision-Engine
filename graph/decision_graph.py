@@ -198,6 +198,11 @@ def report_node(state: GraphState) -> Dict[str, Any]:
     why_this_decision = []
     key_risks = []
     key_opportunities = []
+    recommended_decision = ""
+    implementation_roadmap = []
+    success_metrics = []
+    conditions_and_assumptions = []
+    conclusion = ""
 
     if isinstance(decision, dict):
         decision_text = decision.get("executive_summary") or decision.get("recommendation_title") or str(decision)
@@ -206,6 +211,11 @@ def report_node(state: GraphState) -> Dict[str, Any]:
         why_this_decision = decision.get("why_this_decision", [])
         key_risks = decision.get("key_risks", [])
         key_opportunities = decision.get("key_opportunities", [])
+        recommended_decision = decision.get("recommended_decision") or decision.get("recommendation_title") or ""
+        implementation_roadmap = decision.get("implementation_roadmap", [])
+        success_metrics = decision.get("success_metrics", [])
+        conditions_and_assumptions = decision.get("conditions_and_assumptions", [])
+        conclusion = decision.get("conclusion", "")
     else:
         decision_text = str(decision)
 
@@ -217,6 +227,11 @@ def report_node(state: GraphState) -> Dict[str, Any]:
         "why_this_decision": why_this_decision,
         "key_risks": key_risks,
         "key_opportunities": key_opportunities,
+        "recommended_decision": recommended_decision,
+        "implementation_roadmap": implementation_roadmap,
+        "success_metrics": success_metrics,
+        "conditions_and_assumptions": conditions_and_assumptions,
+        "conclusion": conclusion,
         "execution_metrics": metrics
     }
 
