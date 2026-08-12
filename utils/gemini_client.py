@@ -16,7 +16,7 @@ class GeminiClient:
     """
     def __init__(self):
         self.api_key = os.getenv("GOOGLE_API_KEY")
-        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.model_name = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
         
         self.llm = None
         if self.api_key:

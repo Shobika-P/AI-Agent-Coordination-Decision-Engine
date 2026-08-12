@@ -27,7 +27,7 @@ def health_check():
     return jsonify({
         "status": "ok",
         "service": "Enterprise AI Business Decision Engine",
-        "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
         "orchestration": "LangGraph StateGraph",
         "storage": "SQLite Persistent Database",
         "quota_status": "demo_fallback" if gemini_client.quota_exhausted else "active"

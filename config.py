@@ -5,7 +5,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 load_dotenv()
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+model_name = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 llm = None
 if GOOGLE_API_KEY:
@@ -19,4 +19,4 @@ if GOOGLE_API_KEY:
     except Exception as e:
         print(f"[config.py Warning] Failed to initialize ChatGoogleGenerativeAI: {e}")
 else:
-    print("[config.py Warning] GOOGLE_API_KEY is not set. Engine will operate under Gemini Client Demo/Cache Mode.")
+    print("[config.py Warning] GOOGLE_API_KEY is not set. Engine will operate under Gemini Client Demo/Cache Mode.")
