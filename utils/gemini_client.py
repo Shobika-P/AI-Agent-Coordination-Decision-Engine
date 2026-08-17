@@ -3,6 +3,9 @@ import time
 import random
 import hashlib
 import json
+import threading
+import concurrent.futures
+import re
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -12,7 +15,7 @@ class GeminiClient:
     """
     Centralized Gemini Client Wrapper.
     Handles caching, rate limits, exponential backoff, quota exhaustion detection,
-    token usage tracking, and automatic DEMO/CACHE mode fallback.
+    token usage tracking, in-flight request deduplication, and automatic DEMO/CACHE mode fallback.
     """
     def __init__(self):
         self.api_key = os.getenv("GOOGLE_API_KEY")
@@ -25,26 +28,73 @@ class GeminiClient:
                     model=self.model_name,
                     google_api_key=self.api_key,
                     temperature=0.3,
-                    max_output_tokens=4096
+                    max_output_tokens=4096,
+                    request_timeout=10.0
                 )
             except Exception as e:
                 print(f"[GeminiClient Warning] Failed to initialize ChatGoogleGenerativeAI: {e}")
 
-        # In-memory Response Cache & Telemetry
+        # In-memory Response Cache, In-flight Lock & Telemetry
         self.cache = {}
+        self.in_flight = {}  # cache_key -> (threading.Event, holder_dict)
+        self.lock = threading.Lock()
         self.request_count = 0
         self.cache_hits = 0
         self.token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        
+        # Circuit Breaker & Quota State
         self.quota_exhausted = False
+        self.circuit_open = False
+        self.gemini_available = True if (self.api_key and self.llm) else False
+        self.last_failure_time = 0.0
+        try:
+            self.cooldown_seconds = float(os.getenv("GEMINI_COOLDOWN_SECONDS", "60"))
+        except (ValueError, TypeError):
+            self.cooldown_seconds = 60.0
+
+        if not self.gemini_available:
+            self.circuit_open = True
+            self.quota_exhausted = True
+            self.last_failure_time = time.time()
+
         self.last_error = None
         self.total_latency_seconds = 0.0
 
+    def _get_cooldown_seconds(self) -> float:
+        """Helper to get configurable cooldown period in seconds."""
+        try:
+            return float(os.getenv("GEMINI_COOLDOWN_SECONDS", str(self.cooldown_seconds)))
+        except (ValueError, TypeError):
+            return 60.0
+
+    def _is_service_exhausted_error(self, e: Exception, err_msg: str) -> bool:
+        """
+        Detects if an error is due to 429, quota limits, 499 cancellation, timeout,
+        resource exhaustion, or service unavailability.
+        """
+        msg_lower = err_msg.lower()
+        if isinstance(e, (concurrent.futures.TimeoutError, TimeoutError)):
+            return True
+
+        status_code = getattr(e, "status_code", None) or getattr(e, "code", None)
+        if status_code in (429, 499, 503, 504):
+            return True
+
+        exhaustion_keywords = [
+            "429", "499", "503", "504",
+            "quota", "resourceexhausted", "resource_exhausted",
+            "rate limit", "ratelimit", "cancel", "cancelled", "canceled",
+            "timeout", "timed out", "exhausted", "invalid", "overloaded",
+            "unavailable", "deadline", "service unavailable", "serviceunavailable"
+        ]
+        return any(k in msg_lower for k in exhaustion_keywords)
+
     def _normalize_prompt(self, prompt: str) -> str:
         """Create a normalized hash key for caching."""
-        clean_text = " ".join(prompt.strip().lower().split())
+        clean_text = re.sub(r'\s+', ' ', prompt.strip().lower())
         return hashlib.md5(clean_text.encode("utf-8")).hexdigest()
 
-    def generate(self, prompt: str, system_instruction: str = "", max_retries: int = 3) -> dict:
+    def generate(self, prompt: str, system_instruction: str = "", max_retries: int = 1) -> dict:
         """
         Main entry point for all Gemini requests across all agents.
         Returns dict: {"content": str, "is_cached": bool, "is_demo": bool, "tokens": int}
@@ -52,21 +102,36 @@ class GeminiClient:
         full_text = f"{system_instruction}\n\n{prompt}".strip()
         cache_key = self._normalize_prompt(full_text)
 
-        # 1. Check Response Cache
-        if cache_key in self.cache:
-            self.cache_hits += 1
-            print(f"[GeminiClient CACHE HIT] Reusing cached response for query hash: {cache_key[:8]}")
-            return {
-                "content": self.cache[cache_key],
-                "is_cached": True,
-                "is_demo": False,
-                "quota_exhausted": self.quota_exhausted
-            }
+        # 1. Check Response Cache & In-flight Deduplication
+        with self.lock:
+            if cache_key in self.cache:
+                self.cache_hits += 1
+                print(f"[GeminiClient CACHE HIT] Reusing cached response for query hash: {cache_key[:8]}")
+                return {
+                    "content": self.cache[cache_key],
+                    "is_cached": True,
+                    "is_demo": False,
+                    "quota_exhausted": not self.gemini_available
+                }
+            
+            if cache_key in self.in_flight:
+                event, holder = self.in_flight[cache_key]
+                print(f"[GeminiClient DEDUPLICATION] Reusing in-flight request for query hash: {cache_key[:8]}")
+                need_wait = True
+            else:
+                event = threading.Event()
+                holder = {"result": None}
+                self.in_flight[cache_key] = (event, holder)
+                need_wait = False
 
-        # 2. Check if API key is missing or quota is known to be exhausted
-        if not self.llm or not self.api_key:
-            print("[GeminiClient] API key missing. Switching to DEMO mode.")
-            self.quota_exhausted = True
+        if need_wait:
+            event.wait(timeout=30.0)
+            with self.lock:
+                self.cache_hits += 1
+            res = holder.get("result")
+            if res:
+                return res
+            # Fallback if wait timed out or failed
             demo_res = self._generate_demo_fallback(prompt)
             return {
                 "content": demo_res,
@@ -75,17 +140,69 @@ class GeminiClient:
                 "quota_exhausted": True
             }
 
-        # 3. Request Execution with Exponential Backoff
-        start_time = time.time()
-        self.request_count += 1
-        
-        # Estimate input tokens (~4 chars per token)
-        estimated_prompt_tokens = max(1, len(full_text) // 4)
+        # 2. CIRCUIT BREAKER FAST-FAIL CHECK
+        with self.lock:
+            cooldown = self._get_cooldown_seconds()
+            if not self.gemini_available or self.circuit_open or self.quota_exhausted:
+                time_since_failure = time.time() - self.last_failure_time
+                if time_since_failure < cooldown:
+                    print("[GeminiClient] Circuit OPEN - Gemini temporarily unavailable")
+                    print("[GeminiClient] Skipping request - using cache/demo fallback")
+                    demo_res = self._generate_demo_fallback(prompt)
+                    self.cache[cache_key] = demo_res
+                    result = {
+                        "content": demo_res,
+                        "is_cached": False,
+                        "is_demo": True,
+                        "quota_exhausted": True
+                    }
+                    holder["result"] = result
+                    event.set()
+                    self.in_flight.pop(cache_key, None)
+                    return result
+                else:
+                    # Cooldown period elapsed: HALF-OPEN state (allow 1 trial test request)
+                    print("[GeminiClient] Circuit HALF-OPEN - Cooldown elapsed. Testing Gemini availability...")
 
-        for attempt in range(max_retries):
+        # 3. Check if API key is missing
+        if not self.llm or not self.api_key:
+            print("[GeminiClient] API key missing. Circuit OPEN.")
+            print("[GeminiClient] Skipping request - using cache/demo fallback")
+            demo_res = self._generate_demo_fallback(prompt)
+            result = {
+                "content": demo_res,
+                "is_cached": False,
+                "is_demo": True,
+                "quota_exhausted": True
+            }
+            with self.lock:
+                self.circuit_open = True
+                self.quota_exhausted = True
+                self.gemini_available = False
+                self.last_failure_time = time.time()
+                self.cache[cache_key] = demo_res
+                holder["result"] = result
+                event.set()
+                self.in_flight.pop(cache_key, None)
+            return result
+
+        # 4. Request Execution with Zero-Retry Quota Protection
+        start_time = time.time()
+        with self.lock:
+            self.request_count += 1
+        
+        estimated_prompt_tokens = max(1, len(full_text) // 4)
+        result = None
+        actual_retries = max(1, min(max_retries, 2))
+
+        for attempt in range(actual_retries):
             try:
-                print(f"[GeminiClient LLM Call] Attempt {attempt + 1}/{max_retries}")
-                response = self.llm.invoke(full_text)
+                print(f"[GeminiClient LLM Call] Attempt {attempt + 1}/{actual_retries}")
+                
+                # Execute LLM call with a hard 10-second timeout
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(self.llm.invoke, full_text)
+                    response = future.result(timeout=10.0)
                 
                 # Extract text content safely
                 content = ""
@@ -107,66 +224,90 @@ class GeminiClient:
                     raise ValueError("Received empty response from Gemini API.")
 
                 latency = round(time.time() - start_time, 2)
-                self.total_latency_seconds += latency
-                
                 estimated_completion_tokens = max(1, len(content) // 4)
-                self.token_usage["prompt_tokens"] += estimated_prompt_tokens
-                self.token_usage["completion_tokens"] += estimated_completion_tokens
-                self.token_usage["total_tokens"] += (estimated_prompt_tokens + estimated_completion_tokens)
 
-                # Store in Cache
-                self.cache[cache_key] = content
-                self.quota_exhausted = False
-                self.last_error = None
+                with self.lock:
+                    if self.circuit_open or not self.gemini_available:
+                        print("[GeminiClient] Circuit CLOSED - Gemini service recovered!")
+                    self.circuit_open = False
+                    self.quota_exhausted = False
+                    self.gemini_available = True
+                    self.last_error = None
+                    self.total_latency_seconds += latency
+                    self.token_usage["prompt_tokens"] += estimated_prompt_tokens
+                    self.token_usage["completion_tokens"] += estimated_completion_tokens
+                    self.token_usage["total_tokens"] += (estimated_prompt_tokens + estimated_completion_tokens)
+                    self.cache[cache_key] = content
 
                 print(f"[GeminiClient SUCCESS] Completed in {latency}s")
-                return {
+                result = {
                     "content": content,
                     "is_cached": False,
                     "is_demo": False,
                     "quota_exhausted": False
                 }
+                break
 
             except Exception as e:
                 err_msg = str(e)
                 print(f"[GeminiClient Error - Attempt {attempt + 1}]: {err_msg}")
-                self.last_error = err_msg
+                with self.lock:
+                    self.last_error = err_msg
 
-                is_quota_err = (
-                    "429" in err_msg or
-                    "quota" in err_msg.lower() or
-                    "resourceexhausted" in err_msg.lower() or
-                    "rate limit" in err_msg.lower()
-                )
+                # Detect quota, 429, 499, cancellation, resource exhaustion, timeout, or invalid key
+                is_quota_or_exhaustion = self._is_service_exhausted_error(e, err_msg)
 
-                if is_quota_err or attempt == max_retries - 1:
-                    if is_quota_err:
-                        print("[GeminiClient QUOTA EXHAUSTED] Triggering DEMO/CACHE fallback mode.")
+                if is_quota_or_exhaustion:
+                    with self.lock:
+                        self.circuit_open = True
                         self.quota_exhausted = True
+                        self.gemini_available = False
+                        self.last_failure_time = time.time()
+                    print("[GeminiClient] Circuit OPEN - Gemini temporarily unavailable")
+                    print("[GeminiClient] Skipping request - using cache/demo fallback")
                     
-                    # Fallback to demo/cache mode gracefully
                     demo_content = self._generate_demo_fallback(prompt)
-                    self.cache[cache_key] = demo_content
-                    return {
+                    with self.lock:
+                        self.cache[cache_key] = demo_content
+                    result = {
                         "content": demo_content,
                         "is_cached": False,
                         "is_demo": True,
                         "quota_exhausted": True
                     }
+                    # FAST FAIL: Break loop immediately on quota failure. DO NOT RETRY!
+                    break
 
-                # Exponential backoff delay
-                wait_time = (2 ** attempt) + random.uniform(0.5, 1.5)
-                print(f"[GeminiClient Retrying] Waiting {wait_time:.2f}s before retry...")
-                time.sleep(wait_time)
+                # Transient error retry (only if attempt < actual_retries - 1)
+                if attempt < actual_retries - 1:
+                    wait_time = 0.5
+                    print(f"[GeminiClient Retrying] Transient error. Waiting {wait_time:.2f}s before retry...")
+                    time.sleep(wait_time)
 
-        # Fallback if loop ends unexpectedly
-        demo_content = self._generate_demo_fallback(prompt)
-        return {
-            "content": demo_content,
-            "is_cached": False,
-            "is_demo": True,
-            "quota_exhausted": True
-        }
+        if not result:
+            demo_content = self._generate_demo_fallback(prompt)
+            with self.lock:
+                self.circuit_open = True
+                self.quota_exhausted = True
+                self.gemini_available = False
+                self.last_failure_time = time.time()
+                self.cache[cache_key] = demo_content
+            print("[GeminiClient] Circuit OPEN - Gemini temporarily unavailable")
+            print("[GeminiClient] Skipping request - using cache/demo fallback")
+            result = {
+                "content": demo_content,
+                "is_cached": False,
+                "is_demo": True,
+                "quota_exhausted": True
+            }
+
+        # Complete in-flight deduplication event
+        with self.lock:
+            holder["result"] = result
+            event.set()
+            self.in_flight.pop(cache_key, None)
+
+        return result
 
     def _generate_demo_fallback(self, prompt: str) -> str:
         """Generates realistic structured business responses when Gemini API quota is unavailable."""
@@ -242,25 +383,27 @@ class GeminiClient:
 
     def get_telemetry_metrics(self) -> dict:
         """Returns AI usage monitoring telemetry."""
-        hit_rate = 0.0
-        total_queries = self.request_count + self.cache_hits
-        if total_queries > 0:
-            hit_rate = round((self.cache_hits / total_queries) * 100, 1)
+        with self.lock:
+            hit_rate = 0.0
+            total_queries = self.request_count + self.cache_hits
+            if total_queries > 0:
+                hit_rate = round((self.cache_hits / total_queries) * 100, 1)
 
-        avg_latency = 0.0
-        if self.request_count > 0:
-            avg_latency = round(self.total_latency_seconds / self.request_count, 2)
+            avg_latency = 0.0
+            if self.request_count > 0:
+                avg_latency = round(self.total_latency_seconds / self.request_count, 2)
 
-        return {
-            "gemini_requests": self.request_count,
-            "cached_responses": self.cache_hits,
-            "cache_hit_rate_pct": hit_rate,
-            "average_response_sec": avg_latency,
-            "token_usage": self.token_usage,
-            "quota_exhausted": self.quota_exhausted,
-            "mode": "DEMO/CACHE MODE (Quota Protected)" if self.quota_exhausted else "LIVE GEMINI API",
-            "last_error": self.last_error
-        }
+            return {
+                "gemini_requests": self.request_count,
+                "cached_responses": self.cache_hits,
+                "cache_hit_rate_pct": hit_rate,
+                "average_response_sec": avg_latency,
+                "token_usage": dict(self.token_usage),
+                "quota_exhausted": self.quota_exhausted,
+                "mode": "DEMO/CACHE MODE (Quota Protected)" if self.quota_exhausted else "LIVE GEMINI API",
+                "last_error": self.last_error
+            }
 
 # Global Singleton Instance
 gemini_client = GeminiClient()
+

@@ -1,6 +1,6 @@
 from utils.gemini_client import gemini_client
 
-def invoke_with_retry(llm, prompt, max_retries=3):
+def invoke_with_retry(llm, prompt, max_retries=1):
     """
     Delegates all requests to centralized gemini_client.
     """

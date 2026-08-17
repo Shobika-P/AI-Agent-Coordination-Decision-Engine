@@ -64,29 +64,27 @@ Return ONLY a valid JSON object matching this schema:
   ],
   "conclusion": "<Synthesized strategic concluding summary paragraph>"
 }
-Do NOT use hard-coded generic business steps. Generate phases and steps specifically relevant to the user's business question.
+Do NOT use hard-coded generic steps. Generate phases and steps specifically relevant to the user's business question.
 """
 
-    user_prompt = f"""
-Current Business Problem:
-{task}
+    tool_text = json.dumps(tool_output) if isinstance(tool_output, (dict, list)) else str(tool_output)
 
-Research Findings:
-{research}
+    prompt_parts = [
+        f"Business Problem:\n{task.strip()}",
+        f"Research Summary:\n{str(research).strip()}",
+        f"Execution Plan:\n{str(planning).strip()}",
+        f"Quantitative Tool Analysis:\n{tool_text}"
+    ]
 
-Business Plan:
-{planning}
+    if history and str(history).strip():
+        prompt_parts.append(f"Previous Decision Insights:\n{str(history).strip()}")
 
-Business Tool Analysis:
-{tool_output}
-
-Previous Decisions:
-{history}
-"""
+    user_prompt = "\n\n".join(prompt_parts)
 
     print("[LLM] Decision Agent structured call")
     res = gemini_client.generate(user_prompt, system_instruction=system_instruction)
     content = res.get("content", "")
+
 
     # Try parsing JSON
     try:

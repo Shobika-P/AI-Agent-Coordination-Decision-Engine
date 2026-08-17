@@ -1,7 +1,7 @@
 import time
 import json
 import uuid
-from typing import TypedDict, List, Dict, Any, Optional
+from typing import TypedDict, List, Dict, Any, Optional, Annotated
 
 from langgraph.graph import StateGraph, START, END
 
@@ -15,6 +15,18 @@ from memory.report_db import report_db
 
 memory = SharedMemory()
 
+def merge_dict(a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    res = dict(a or {})
+    res.update(b or {})
+    return res
+
+def merge_list(a: Optional[List[Any]], b: Optional[List[Any]]) -> List[Any]:
+    res = list(a or [])
+    for item in (b or []):
+        if item not in res:
+            res.append(item)
+    return res
+
 class GraphState(TypedDict):
     task: str
     conversation_id: str
@@ -27,25 +39,22 @@ class GraphState(TypedDict):
     final_report: Optional[Dict[str, Any]]
     followup_question: Optional[str]
     followup_answer: Optional[str]
-    errors: List[str]
+    errors: Annotated[List[str], merge_list]
     workflow_status: str
-    agent_statuses: Dict[str, str]
-    execution_metrics: Dict[str, Any]
+    agent_statuses: Annotated[Dict[str, str], merge_dict]
+    execution_metrics: Annotated[Dict[str, Any], merge_dict]
 
 
 def business_tool_node(state: GraphState) -> Dict[str, Any]:
     task = state["task"]
     t0 = time.time()
 
-    agent_statuses = dict(state.get("agent_statuses") or {})
-    execution_metrics = dict(state.get("execution_metrics") or {})
-    errors = list(state.get("errors") or [])
-
-    agent_statuses["tool"] = "RUNNING"
     print("\n[LangGraph] Node: business_tool_node")
 
     tool_result = None
     selected_tool_name = "Market Risk Tool"
+    status = "RUNNING"
+    node_errors = []
 
     try:
         raw_result = execute_tool(task)
@@ -53,25 +62,25 @@ def business_tool_node(state: GraphState) -> Dict[str, Any]:
             tool_result = raw_result
             if isinstance(raw_result, dict):
                 selected_tool_name = raw_result.get("tool", "Market Risk Tool")
-            agent_statuses["tool"] = "COMPLETED"
+            status = "COMPLETED"
         else:
             tool_result = "No quantitative tool required for this analysis."
-            agent_statuses["tool"] = "SKIPPED"
+            status = "SKIPPED"
     except Exception as e:
         print("[LangGraph] Tool Execution Error:", e)
-        errors.append(f"Tool Error: {str(e)}")
+        node_errors.append(f"Tool Error: {str(e)}")
         tool_result = f"Tool Error: {str(e)}"
-        agent_statuses["tool"] = "FAILED"
+        status = "FAILED"
 
-    execution_metrics["tool_seconds"] = round(time.time() - t0, 2)
+    elapsed = round(time.time() - t0, 2)
     memory.save("tool", tool_result)
 
     return {
         "selected_tool": selected_tool_name,
         "business_tool_result": tool_result,
-        "agent_statuses": agent_statuses,
-        "execution_metrics": execution_metrics,
-        "errors": errors
+        "agent_statuses": {"tool": status},
+        "execution_metrics": {"tool_seconds": elapsed},
+        "errors": node_errors
     }
 
 
@@ -79,30 +88,28 @@ def research_node(state: GraphState) -> Dict[str, Any]:
     task = state["task"]
     t0 = time.time()
 
-    agent_statuses = dict(state.get("agent_statuses") or {})
-    execution_metrics = dict(state.get("execution_metrics") or {})
-    errors = list(state.get("errors") or [])
-
-    agent_statuses["research"] = "RUNNING"
     print("\n[LangGraph] Node: research_node")
+
+    status = "RUNNING"
+    node_errors = []
 
     try:
         res = research_agent(task)
-        agent_statuses["research"] = "COMPLETED"
+        status = "COMPLETED"
     except Exception as e:
         print("[LangGraph] Research Agent Error:", e)
-        errors.append(f"Research Error: {str(e)}")
+        node_errors.append(f"Research Error: {str(e)}")
         res = f"Research Error: {str(e)}"
-        agent_statuses["research"] = "FAILED"
+        status = "FAILED"
 
-    execution_metrics["research_seconds"] = round(time.time() - t0, 2)
+    elapsed = round(time.time() - t0, 2)
     memory.save("research", res)
 
     return {
         "research_result": res,
-        "agent_statuses": agent_statuses,
-        "execution_metrics": execution_metrics,
-        "errors": errors
+        "agent_statuses": {"research": status},
+        "execution_metrics": {"research_seconds": elapsed},
+        "errors": node_errors
     }
 
 
@@ -111,30 +118,28 @@ def planning_node(state: GraphState) -> Dict[str, Any]:
     research = state.get("research_result") or ""
     t0 = time.time()
 
-    agent_statuses = dict(state.get("agent_statuses") or {})
-    execution_metrics = dict(state.get("execution_metrics") or {})
-    errors = list(state.get("errors") or [])
-
-    agent_statuses["planning"] = "RUNNING"
     print("\n[LangGraph] Node: planning_node")
+
+    status = "RUNNING"
+    node_errors = []
 
     try:
         plan = planning_agent(task, research)
-        agent_statuses["planning"] = "COMPLETED"
+        status = "COMPLETED"
     except Exception as e:
         print("[LangGraph] Planning Agent Error:", e)
-        errors.append(f"Planning Error: {str(e)}")
+        node_errors.append(f"Planning Error: {str(e)}")
         plan = f"Planning Error: {str(e)}"
-        agent_statuses["planning"] = "FAILED"
+        status = "FAILED"
 
-    execution_metrics["planning_seconds"] = round(time.time() - t0, 2)
+    elapsed = round(time.time() - t0, 2)
     memory.save("planning", plan)
 
     return {
         "planning_result": plan,
-        "agent_statuses": agent_statuses,
-        "execution_metrics": execution_metrics,
-        "errors": errors
+        "agent_statuses": {"planning": status},
+        "execution_metrics": {"planning_seconds": elapsed},
+        "errors": node_errors
     }
 
 
@@ -145,12 +150,10 @@ def decision_node(state: GraphState) -> Dict[str, Any]:
     tool_res = state.get("business_tool_result") or "No tool required."
     t0 = time.time()
 
-    agent_statuses = dict(state.get("agent_statuses") or {})
-    execution_metrics = dict(state.get("execution_metrics") or {})
-    errors = list(state.get("errors") or [])
-
-    agent_statuses["decision"] = "RUNNING"
     print("\n[LangGraph] Node: decision_node")
+
+    status = "RUNNING"
+    node_errors = []
 
     try:
         decision = decision_agent(
@@ -160,21 +163,21 @@ def decision_node(state: GraphState) -> Dict[str, Any]:
             tool_res,
             history=""
         )
-        agent_statuses["decision"] = "COMPLETED"
+        status = "COMPLETED"
     except Exception as e:
         print("[LangGraph] Decision Agent Error:", e)
-        errors.append(f"Decision Error: {str(e)}")
+        node_errors.append(f"Decision Error: {str(e)}")
         decision = {"decision": f"Decision Error: {str(e)}", "viability_score": 50, "confidence": 50}
-        agent_statuses["decision"] = "FAILED"
+        status = "FAILED"
 
-    execution_metrics["decision_seconds"] = round(time.time() - t0, 2)
+    elapsed = round(time.time() - t0, 2)
     memory.save("decision", decision)
 
     return {
         "decision_result": decision,
-        "agent_statuses": agent_statuses,
-        "execution_metrics": execution_metrics,
-        "errors": errors
+        "agent_statuses": {"decision": status},
+        "execution_metrics": {"decision_seconds": elapsed},
+        "errors": node_errors
     }
 
 
@@ -263,7 +266,7 @@ def report_node(state: GraphState) -> Dict[str, Any]:
     }
 
 
-# Build Report Workflow Graph
+# Build Report Workflow Graph (Parallel Business Tool & Research)
 report_builder = StateGraph(GraphState)
 
 report_builder.add_node("business_tool_node", business_tool_node)
@@ -273,13 +276,15 @@ report_builder.add_node("decision_node", decision_node)
 report_builder.add_node("report_node", report_node)
 
 report_builder.add_edge(START, "business_tool_node")
-report_builder.add_edge("business_tool_node", "research_node")
+report_builder.add_edge(START, "research_node")
+report_builder.add_edge("business_tool_node", "planning_node")
 report_builder.add_edge("research_node", "planning_node")
 report_builder.add_edge("planning_node", "decision_node")
 report_builder.add_edge("decision_node", "report_node")
 report_builder.add_edge("report_node", END)
 
 report_workflow = report_builder.compile()
+
 
 
 # Follow-up Workflow Nodes

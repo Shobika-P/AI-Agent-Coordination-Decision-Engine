@@ -1,6 +1,8 @@
 import os
 import uuid
 import json
+import threading
+import re
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 
@@ -19,6 +21,14 @@ allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 CORS(app, origins=allowed_origins)
 
 memory = SharedMemory()
+
+# Query Cache & Concurrent Request Deduplication Locks
+report_cache = {}  # norm_query -> dict response payload
+active_report_requests = {}  # norm_query -> (threading.Event, holder_dict)
+report_lock = threading.Lock()
+
+def _normalize_query(task: str) -> str:
+    return re.sub(r'\s+', ' ', (task or "").strip().lower())
 
 
 @app.route("/", methods=["GET"])
@@ -52,17 +62,79 @@ def get_monitoring():
 
 @app.route("/generate-report", methods=["POST"])
 def generate_report():
+    data = request.get_json(silent=True) or {}
+    task = data.get("task", "").strip()
+    conversation_id = data.get("conversation_id") or str(uuid.uuid4())
+
+    if not task:
+        return jsonify({
+            "success": False,
+            "error": "Business problem is required."
+        }), 400
+
+    norm_query = _normalize_query(task)
+
+    # 1. Check In-Memory Query Cache
+    with report_lock:
+        if norm_query in report_cache:
+            print(f"[Report Cache HIT] Returning cached report for query: '{task}'")
+            cached_payload = dict(report_cache[norm_query])
+            cached_payload["conversation_id"] = conversation_id
+            return jsonify(cached_payload), 200
+
+    # 2. Check Database for Existing Match
+    existing_reports = report_db.list_reports(search=task)
+    if existing_reports:
+        for rep in existing_reports:
+            if _normalize_query(rep.get("original_question", "")) == norm_query:
+                full_rep = report_db.get_report(rep["report_id"])
+                if full_rep and full_rep.get("report_data"):
+                    print(f"[Report DB Cache HIT] Found existing report in DB for query: '{task}'")
+                    db_payload = {
+                        "success": True,
+                        "task": task,
+                        "conversation_id": conversation_id,
+                        "report": full_rep["report_data"],
+                        "workflow": {
+                            "status": "completed",
+                            "agent_statuses": {
+                                "tool": "COMPLETED",
+                                "research": "COMPLETED",
+                                "planning": "COMPLETED",
+                                "decision": "COMPLETED",
+                                "report": "COMPLETED"
+                            },
+                            "metrics": full_rep["report_data"].get("execution_metrics", {})
+                        },
+                        "quota_notice": "AI quota temporarily unavailable. Cached analysis or demo mode is being used." if gemini_client.quota_exhausted else None
+                    }
+                    with report_lock:
+                        report_cache[norm_query] = db_payload
+                    return jsonify(db_payload), 200
+
+    # 3. Concurrent Request Deduplication
+    need_wait = False
+    with report_lock:
+        if norm_query in active_report_requests:
+            event, holder = active_report_requests[norm_query]
+            print(f"[Concurrent Request DEDUPLICATED] Waiting for active workflow: '{task}'")
+            need_wait = True
+        else:
+            event = threading.Event()
+            holder = {"response_data": None}
+            active_report_requests[norm_query] = (event, holder)
+            need_wait = False
+
+    if need_wait:
+        event.wait(timeout=60.0)
+        res_data = holder.get("response_data")
+        if res_data:
+            res_payload = dict(res_data[0])
+            res_payload["conversation_id"] = conversation_id
+            return jsonify(res_payload), res_data[1]
+
+    # 4. Execute LangGraph Workflow
     try:
-        data = request.get_json(silent=True) or {}
-        task = data.get("task", "").strip()
-        conversation_id = data.get("conversation_id") or str(uuid.uuid4())
-
-        if not task:
-            return jsonify({
-                "success": False,
-                "error": "Business problem is required."
-            }), 400
-
         print("\n" + "=" * 60)
         print(f"LANGGRAPH MULTI-AGENT ENGINE [ID: {conversation_id}]")
         print("=" * 60)
@@ -91,7 +163,6 @@ def generate_report():
             "execution_metrics": {}
         }
 
-        # Execute LangGraph Workflow
         final_state = report_workflow.invoke(initial_state)
 
         report = final_state.get("final_report")
@@ -99,7 +170,7 @@ def generate_report():
 
         print("\n[LangGraph] Workflow Completed Successfully.")
 
-        return jsonify({
+        response_payload = {
             "success": True,
             "task": task,
             "conversation_id": conversation_id,
@@ -110,18 +181,36 @@ def generate_report():
                 "metrics": final_state.get("execution_metrics")
             },
             "quota_notice": "AI quota temporarily unavailable. Cached analysis or demo mode is being used." if gemini_client.quota_exhausted else None
-        }), 200
+        }
+
+        if report:
+            with report_lock:
+                report_cache[norm_query] = response_payload
+
+        with report_lock:
+            holder["response_data"] = (response_payload, 200)
+            event.set()
+            active_report_requests.pop(norm_query, None)
+
+        return jsonify(response_payload), 200
 
     except Exception as e:
         err_str = str(e)
         print("\n[LangGraph ERROR] Generating Report:", repr(e))
 
-        # Never return empty/blank response, return structured error
-        return jsonify({
+        err_payload = {
             "success": False,
             "error": f"Analysis system warning: {err_str}",
             "quota_notice": "AI quota temporarily unavailable. Cached analysis or demo mode is being used."
-        }), 200
+        }
+
+        with report_lock:
+            holder["response_data"] = (err_payload, 200)
+            event.set()
+            active_report_requests.pop(norm_query, None)
+
+        return jsonify(err_payload), 200
+
 
 
 # ============================================================
