@@ -6,6 +6,7 @@ import uuid
 
 DB_PATH = os.path.join("memory", "decision_engine.db")
 
+
 class ReportDatabase:
     """
     SQLite Database Manager for persistent Report Library, Decision History,
@@ -42,15 +43,13 @@ class ReportDatabase:
             conn.commit()
 
     def generate_title(self, question: str) -> str:
-        """Automatically generates a concise title from the business question."""
+        """Generates a concise title from the business question."""
         clean_q = question.strip()
-        # Remove common prefixes
         for prefix in ["should we", "how can we", "what is the", "is it profitable to", "can we", "would it be good to"]:
             if clean_q.lower().startswith(prefix):
                 clean_q = clean_q[len(prefix):].strip()
                 break
-        
-        # Capitalize and truncate
+
         words = clean_q.split()
         if len(words) > 7:
             short_title = " ".join(words[:7]).strip("?,.!") + "..."
@@ -69,8 +68,8 @@ class ReportDatabase:
         title = self.generate_title(original_question)
         decision_text = str(report_data.get("decision", ""))
         risk_level = report_data.get("risk_level") or report_data.get("tool_analysis", {}).get("risk_level", "Medium")
-        viability_score = report_data.get("viability_score", 78)
-        confidence = report_data.get("confidence", 82)
+        viability_score = int(report_data.get("viability_score", 78))
+        confidence = int(report_data.get("confidence", 82))
 
         report_json = json.dumps(report_data)
         conv_json = json.dumps(conversation_history or [])
@@ -114,10 +113,16 @@ class ReportDatabase:
             row = cursor.fetchone()
             if not row:
                 return None
-            
+
             d = dict(row)
-            d["report_data"] = json.loads(d["report_data"]) if d["report_data"] else {}
-            d["conversation_history"] = json.loads(d["conversation_history"]) if d["conversation_history"] else []
+            try:
+                d["report_data"] = json.loads(d["report_data"]) if d["report_data"] else {}
+            except Exception:
+                d["report_data"] = {}
+            try:
+                d["conversation_history"] = json.loads(d["conversation_history"]) if d["conversation_history"] else []
+            except Exception:
+                d["conversation_history"] = []
             return d
 
     def list_reports(self, search: str = "", risk_filter: str = "ALL") -> list:
@@ -157,6 +162,7 @@ class ReportDatabase:
             cursor.execute("DELETE FROM reports WHERE report_id = ?", (report_id,))
             conn.commit()
             return cursor.rowcount > 0
+
 
 # Singleton DB Instance
 report_db = ReportDatabase()

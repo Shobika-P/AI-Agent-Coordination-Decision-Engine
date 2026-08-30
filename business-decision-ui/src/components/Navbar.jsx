@@ -1,18 +1,39 @@
 function Navbar({ onOpenLibrary, onOpenMonitoring, quotaStatus }) {
+    let pillClass = "green";
+    let pillText = "GEMINI API LIVE";
+
+    if (quotaStatus === "TEMPORARILY_UNAVAILABLE" || quotaStatus === "temporary_ai_unavailable") {
+        pillClass = "orange";
+        pillText = "AI SERVICE BUSY";
+    } else if (quotaStatus === "RATE_LIMITED" || quotaStatus === "rate_limited" || quotaStatus === "quota_exhausted") {
+        pillClass = "orange";
+        pillText = "RATE LIMITED";
+    } else if (quotaStatus === "RECOVERING") {
+        pillClass = "blue";
+        pillText = "RECOVERING";
+    } else if (quotaStatus === "CONFIGURATION_ERROR" || quotaStatus === "offline" || quotaStatus === "configuration_error") {
+        pillClass = "red";
+        pillText = "CONFIG ERROR";
+    } else if (quotaStatus === "checking") {
+        pillClass = "blue";
+        pillText = "SYSTEM ONLINE";
+    }
+
+
     return (
         <header className="navbar-container">
             <div className="navbar-left">
                 <div className="brand-logo-icon">⚡</div>
                 <div className="brand-text-group">
                     <h1 className="brand-title">DECISION ENGINE</h1>
-                    <span className="brand-subtitle">Enterprise AI Business Decision Support Workspace</span>
+                    <span className="brand-subtitle">Enterprise Workflow Platform & Decision Automation System</span>
                 </div>
             </div>
 
             <div className="navbar-right">
-                <span className={`status-pill ${quotaStatus === "demo" ? "orange" : "green"}`}>
+                <span className={`status-pill ${pillClass}`}>
                     <span className="pill-dot"></span>
-                    {quotaStatus === "demo" ? "DEMO MODE (Quota Protected)" : "GEMINI API ONLINE"}
+                    {pillText}
                 </span>
 
                 <button

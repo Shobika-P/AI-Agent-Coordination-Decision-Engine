@@ -177,14 +177,19 @@ function ReportViewer({
         setDynamicRisk(null);
     }, [report]);
 
-    const suggestedChips = [
+    const parsedReport = safeParseJson(report);
+
+    const defaultChips = [
         "Why is the market risk medium?",
         "How can we lower customer acquisition cost?",
         "What happens if sales volume drops by 20%?",
         "What are our top 3 execution priorities?"
     ];
 
-    const parsedReport = safeParseJson(report);
+    const suggestedChips =
+        Array.isArray(parsedReport?.suggested_followups) && parsedReport.suggested_followups.length > 0
+            ? parsedReport.suggested_followups
+            : defaultChips;
 
     const handleExport = async (format) => {
         setShowExportMenu(false);
@@ -277,22 +282,32 @@ function ReportViewer({
     }
 
     if (error && !parsedReport) {
+        const errorTitle = typeof error === "object" && error.title ? error.title : "AI Service Temporarily Busy";
+        const errorMsg =
+            typeof error === "object" && error.message
+                ? error.message
+                : safeString(error, "We could not complete the live AI analysis at this moment. Please retry in a few seconds.");
+
         return (
             <section className="report-container">
-                <div className="error-card">
-                    <div className="error-icon">⚠️</div>
-                    <h3>Analysis Could Not Be Completed</h3>
-                    <p>{safeString(error, "An unexpected error occurred.")}</p>
-                    <span className="error-hint">System is protected by automatic DEMO/CACHE fallback.</span>
+                <div className="error-card" style={{ maxWidth: "600px", margin: "40px auto", textAlign: "center", padding: "36px 24px" }}>
+                    <div className="error-icon" style={{ fontSize: "36px", marginBottom: "12px" }}>⚡</div>
+                    <h3 style={{ fontSize: "20px", fontWeight: "700", color: "var(--text-main, #f3f4f6)", marginBottom: "8px" }}>
+                        {errorTitle}
+                    </h3>
+                    <p style={{ fontSize: "14.5px", lineHeight: "1.6", color: "var(--text-secondary, #9ca3af)", margin: "0 auto 20px" }}>
+                        {errorMsg}
+                    </p>
                     {onRetry && (
-                        <button className="btn-retry-action" onClick={onRetry} style={{ marginTop: "16px" }}>
-                            🔄 Retry Request
+                        <button className="btn-retry-action" onClick={onRetry} style={{ padding: "10px 22px", fontSize: "14px", fontWeight: "600", borderRadius: "6px", cursor: "pointer" }}>
+                            🔄 Retry Analysis
                         </button>
                     )}
                 </div>
             </section>
         );
     }
+
 
     if (!parsedReport) {
         return (
@@ -388,13 +403,17 @@ function ReportViewer({
         setLocalFollowupText("");
     };
 
+    const analysisSource = isObjReport
+        ? parsedReport.analysis_source || (parsedReport.is_demo ? "FALLBACK" : "LIVE_AI")
+        : "LIVE_AI";
+
     return (
         <section className="report-container">
-            {/* QUOTA WARNING NOTICE BANNER */}
+            {/* NOTICE BANNER */}
             {quotaNotice && (
                 <div className="quota-notice-banner">
                     <span className="banner-icon">⚡</span>
-                    <span>AI quota temporarily unavailable. Cached analysis or demo mode is being used.</span>
+                    <span>{quotaNotice}</span>
                 </div>
             )}
 
@@ -435,10 +454,24 @@ function ReportViewer({
                             </div>
                         )}
 
-                        <span className="status-pill green">
-                            <span className="pill-dot"></span>
-                            Analysis Complete
-                        </span>
+                        {analysisSource === "LIVE_AI" && (
+                            <span className="status-pill green" title="Generated live by Gemini Multi-Agent Workflow">
+                                <span className="pill-dot"></span>
+                                Live AI Analysis
+                            </span>
+                        )}
+                        {analysisSource === "LIVE_CACHE" && (
+                            <span className="status-pill blue" title="Returned from in-memory query cache" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa", border: "1px solid rgba(59, 130, 246, 0.3)" }}>
+                                <span className="pill-dot" style={{ background: "#3b82f6" }}></span>
+                                Cached Analysis
+                            </span>
+                        )}
+                        {analysisSource === "FALLBACK" && (
+                            <span className="status-pill orange" title="Generated via offline structured fallback protection mode" style={{ background: "rgba(245, 158, 11, 0.15)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
+                                <span className="pill-dot" style={{ background: "#f59e0b" }}></span>
+                                Offline Fallback
+                            </span>
+                        )}
                     </div>
                 </div>
 

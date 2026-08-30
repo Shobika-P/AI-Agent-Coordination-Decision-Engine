@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import API from "./services/api";
 
 import Navbar from "./components/Navbar";
@@ -16,6 +16,7 @@ function App() {
     const [reportError, setReportError] = useState(null);
     const [quotaNotice, setQuotaNotice] = useState(null);
     const [metrics, setMetrics] = useState({});
+    const [apiStatus, setApiStatus] = useState("checking");
 
     // LangGraph Workflow Agent Statuses
     const [agentStatuses, setAgentStatuses] = useState({
@@ -33,10 +34,24 @@ function App() {
     // Follow-up Thread
     const [followupMessages, setFollowupMessages] = useState([]);
 
-    const handleGenerate = async (task) => {
+    useEffect(() => {
+        checkHealth();
+    }, []);
+
+    const checkHealth = async () => {
+        try {
+            const res = await API.get("/health");
+            const status = res.data?.status || (res.data?.gemini_available ? "LIVE" : "CONFIGURATION_ERROR");
+            setApiStatus(status);
+        } catch {
+            setApiStatus("CONFIGURATION_ERROR");
+        }
+    };
+
+    const handleGenerate = async (task, forceRefresh = false) => {
         if (!task || !task.trim()) return;
 
-        console.log("Launching LangGraph decision workflow for:", task);
+        console.log("Launching LangGraph decision workflow for:", task, "forceRefresh:", forceRefresh);
         setLoading(true);
         setReportError(null);
         setQuotaNotice(null);
@@ -56,7 +71,8 @@ function App() {
 
         try {
             const response = await API.post("/generate-report", {
-                task: task.trim()
+                task: task.trim(),
+                force_refresh: forceRefresh
             });
 
             console.log("LANGGRAPH RESPONSE:", response?.data);
@@ -64,9 +80,6 @@ function App() {
             if (response?.data?.success && response?.data?.report) {
                 setReport(response.data.report);
                 setConversationId(response.data.conversation_id);
-                if (response.data.quota_notice) {
-                    setQuotaNotice(response.data.quota_notice);
-                }
 
                 if (response.data.workflow?.agent_statuses) {
                     setAgentStatuses(response.data.workflow.agent_statuses);
@@ -83,23 +96,49 @@ function App() {
                 if (response.data.workflow?.metrics) {
                     setMetrics(response.data.workflow.metrics);
                 }
+
+                checkHealth();
             } else {
-                const errMsg = response?.data?.error || "Failed to generate business report.";
-                setReportError(errMsg);
-                if (response?.data?.quota_notice) {
-                    setQuotaNotice(response.data.quota_notice);
-                }
+                const data = response?.data || {};
+                let errObj = {
+                    title: data.status === "rate_limited" ? "AI Rate Limit Reached" : "AI Service Temporarily Busy",
+                    message: data.message || "We could not complete the live AI analysis at this moment. Please retry in a few seconds.",
+                    isTemporary: true
+                };
+                setReportError(errObj);
             }
         } catch (error) {
             console.error("LANGGRAPH REPORT ERROR:", error);
-            const errMsg =
-                error?.response?.data?.error ||
-                "Failed to generate report. System is operating under quota protection.";
-            setReportError(errMsg);
+            const data = error?.response?.data || {};
+            const httpStatus = error?.response?.status;
+
+            let errObj = null;
+            if (data.status === "rate_limited" || httpStatus === 429) {
+                errObj = {
+                    title: "AI Rate Limit Reached",
+                    message: data.message || "The AI request rate limit has been reached. Please wait a few seconds before retrying.",
+                    isTemporary: true
+                };
+            } else if (data.status === "configuration_error" || (httpStatus === 500 && String(data.error || "").toLowerCase().includes("key"))) {
+                errObj = {
+                    title: "AI Configuration Error",
+                    message: data.message || "Google Gemini API key is missing or invalid. Please check your environment configuration.",
+                    isTemporary: false
+                };
+            } else {
+                errObj = {
+                    title: "AI Service Temporarily Busy",
+                    message: data.message || "We could not complete the live AI analysis at this moment. Please retry in a few seconds.",
+                    isTemporary: true
+                };
+            }
+            setReportError(errObj);
+            checkHealth();
         } finally {
             setLoading(false);
         }
     };
+
 
     const handleFollowup = async (userQuestion) => {
         const questionText = (typeof userQuestion === "string" ? userQuestion : "").trim();
@@ -204,7 +243,7 @@ function App() {
             <Navbar
                 onOpenLibrary={() => setShowLibrary(true)}
                 onOpenMonitoring={() => setShowMonitoring(true)}
-                quotaStatus={quotaNotice ? "demo" : "active"}
+                quotaStatus={quotaNotice ? "demo" : apiStatus}
             />
 
             <main className="app-container">
@@ -232,7 +271,7 @@ function App() {
                     followupMessages={followupMessages}
                     onFollowup={handleFollowup}
                     onClearFollowup={() => setFollowupMessages([])}
-                    onRetry={() => handleGenerate(businessTask)}
+                    onRetry={() => handleGenerate(businessTask, true)}
                 />
 
                 {/* PERSISTENT SQLITE REPORT LIBRARY MODAL */}

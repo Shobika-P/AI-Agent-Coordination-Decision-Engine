@@ -15,10 +15,12 @@ from memory.report_db import report_db
 
 memory = SharedMemory()
 
+
 def merge_dict(a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     res = dict(a or {})
     res.update(b or {})
     return res
+
 
 def merge_list(a: Optional[List[Any]], b: Optional[List[Any]]) -> List[Any]:
     res = list(a or [])
@@ -27,13 +29,15 @@ def merge_list(a: Optional[List[Any]], b: Optional[List[Any]]) -> List[Any]:
             res.append(item)
     return res
 
+
 class GraphState(TypedDict):
     task: str
     conversation_id: str
+    force_refresh: Optional[bool]
     selected_tool: Optional[str]
     conversation_history: List[Dict[str, str]]
-    research_result: Optional[str]
-    planning_result: Optional[str]
+    research_result: Optional[Any]
+    planning_result: Optional[Any]
     business_tool_result: Optional[Any]
     decision_result: Optional[Any]
     final_report: Optional[Dict[str, Any]]
@@ -86,20 +90,33 @@ def business_tool_node(state: GraphState) -> Dict[str, Any]:
 
 def research_node(state: GraphState) -> Dict[str, Any]:
     task = state["task"]
+    force_refresh = state.get("force_refresh", False)
     t0 = time.time()
 
     print("\n[LangGraph] Node: research_node")
 
     status = "RUNNING"
     node_errors = []
+    res = None
 
     try:
-        res = research_agent(task)
-        status = "COMPLETED"
+        res = research_agent(task, force_refresh=force_refresh)
+        if isinstance(res, dict) and res.get("success") is False:
+            status = "FAILED"
+            node_errors.append(f"Research Error: {res.get('error')}")
+        else:
+            status = "COMPLETED"
     except Exception as e:
         print("[LangGraph] Research Agent Error:", e)
         node_errors.append(f"Research Error: {str(e)}")
-        res = f"Research Error: {str(e)}"
+        res = {
+            "success": False,
+            "status": "temporary_ai_unavailable",
+            "message": "The AI analysis service is temporarily busy. Please try again in a moment.",
+            "retry_after_seconds": 15,
+            "error": str(e),
+            "analysis_source": "UNAVAILABLE"
+        }
         status = "FAILED"
 
     elapsed = round(time.time() - t0, 2)
@@ -115,22 +132,27 @@ def research_node(state: GraphState) -> Dict[str, Any]:
 
 def planning_node(state: GraphState) -> Dict[str, Any]:
     task = state["task"]
-    research = state.get("research_result") or ""
+    research = state.get("research_result") or {}
     t0 = time.time()
 
     print("\n[LangGraph] Node: planning_node")
 
     status = "RUNNING"
     node_errors = []
+    plan = None
 
-    try:
-        plan = planning_agent(task, research)
-        status = "COMPLETED"
-    except Exception as e:
-        print("[LangGraph] Planning Agent Error:", e)
-        node_errors.append(f"Planning Error: {str(e)}")
-        plan = f"Planning Error: {str(e)}"
-        status = "FAILED"
+    if isinstance(research, dict) and research.get("success") is False:
+        status = "SKIPPED"
+        plan = []
+    else:
+        try:
+            plan = planning_agent(task, research)
+            status = "COMPLETED"
+        except Exception as e:
+            print("[LangGraph] Planning Agent Error:", e)
+            node_errors.append(f"Planning Error: {str(e)}")
+            plan = []
+            status = "FAILED"
 
     elapsed = round(time.time() - t0, 2)
     memory.save("planning", plan)
@@ -145,8 +167,8 @@ def planning_node(state: GraphState) -> Dict[str, Any]:
 
 def decision_node(state: GraphState) -> Dict[str, Any]:
     task = state["task"]
-    research = state.get("research_result") or ""
-    planning = state.get("planning_result") or ""
+    research = state.get("research_result") or {}
+    planning = state.get("planning_result") or []
     tool_res = state.get("business_tool_result") or "No tool required."
     t0 = time.time()
 
@@ -154,21 +176,32 @@ def decision_node(state: GraphState) -> Dict[str, Any]:
 
     status = "RUNNING"
     node_errors = []
+    decision = None
 
-    try:
-        decision = decision_agent(
-            task,
-            research,
-            planning,
-            tool_res,
-            history=""
-        )
-        status = "COMPLETED"
-    except Exception as e:
-        print("[LangGraph] Decision Agent Error:", e)
-        node_errors.append(f"Decision Error: {str(e)}")
-        decision = {"decision": f"Decision Error: {str(e)}", "viability_score": 50, "confidence": 50}
+    if isinstance(research, dict) and research.get("success") is False:
         status = "FAILED"
+        decision = research
+    else:
+        try:
+            decision = decision_agent(
+                task,
+                research,
+                planning,
+                tool_res,
+                history=""
+            )
+            status = "COMPLETED"
+        except Exception as e:
+            print("[LangGraph] Decision Agent Error:", e)
+            node_errors.append(f"Decision Error: {str(e)}")
+            decision = {
+                "success": False,
+                "status": "temporary_ai_unavailable",
+                "message": "Failed to synthesize decision report.",
+                "error": str(e),
+                "analysis_source": "UNAVAILABLE"
+            }
+            status = "FAILED"
 
     elapsed = round(time.time() - t0, 2)
     memory.save("decision", decision)
@@ -185,11 +218,22 @@ def report_node(state: GraphState) -> Dict[str, Any]:
     task = state["task"]
     decision = state.get("decision_result")
     tool_res = state.get("business_tool_result")
-    metrics = state.get("execution_metrics") or {}
+    metrics = dict(state.get("execution_metrics") or {})
     agent_statuses = dict(state.get("agent_statuses") or {})
 
-    agent_statuses["report"] = "COMPLETED"
     print("\n[LangGraph] Node: report_node")
+
+    # If decision/research failed, return failure without fabricating a generic report
+    if isinstance(decision, dict) and decision.get("success") is False:
+        agent_statuses["report"] = "FAILED"
+        failure_status = decision.get("status", "temporary_ai_unavailable")
+        return {
+            "final_report": decision,
+            "agent_statuses": agent_statuses,
+            "workflow_status": failure_status
+        }
+
+    agent_statuses["report"] = "COMPLETED"
 
     risk_level = "Medium"
     if isinstance(tool_res, dict):
@@ -205,7 +249,11 @@ def report_node(state: GraphState) -> Dict[str, Any]:
     implementation_roadmap = []
     success_metrics = []
     conditions_and_assumptions = []
+    suggested_followups = []
     conclusion = ""
+    analysis_source = "LIVE_AI"
+    is_demo = False
+    quota_exhausted = False
 
     if isinstance(decision, dict):
         decision_text = decision.get("executive_summary") or decision.get("recommendation_title") or str(decision)
@@ -218,11 +266,27 @@ def report_node(state: GraphState) -> Dict[str, Any]:
         implementation_roadmap = decision.get("implementation_roadmap", [])
         success_metrics = decision.get("success_metrics", [])
         conditions_and_assumptions = decision.get("conditions_and_assumptions", [])
+        suggested_followups = decision.get("suggested_followups", [])
         conclusion = decision.get("conclusion", "")
+        analysis_source = decision.get("analysis_source", "LIVE_AI")
+        is_demo = decision.get("is_demo", False)
+        quota_exhausted = decision.get("quota_exhausted", False)
+        if decision.get("risk_level"):
+            risk_level = decision.get("risk_level")
     else:
         decision_text = str(decision)
 
+    if not suggested_followups:
+        clean_t = task.strip("?.!") if task else "this initiative"
+        suggested_followups = [
+            f"What are the primary operational bottlenecks for {clean_t}?",
+            f"What happens to profitability if customer acquisition costs increase by 30%?",
+            f"What is the break-even volume required during Phase 1?",
+            f"How can we mitigate the main competitive risks?"
+        ]
+
     report_data = {
+        "success": True,
         "decision": decision_text,
         "risk_level": risk_level,
         "viability_score": viability_score,
@@ -234,14 +298,18 @@ def report_node(state: GraphState) -> Dict[str, Any]:
         "implementation_roadmap": implementation_roadmap,
         "success_metrics": success_metrics,
         "conditions_and_assumptions": conditions_and_assumptions,
+        "suggested_followups": suggested_followups,
         "conclusion": conclusion,
-        "execution_metrics": metrics
+        "execution_metrics": metrics,
+        "analysis_source": analysis_source,
+        "is_demo": is_demo,
+        "quota_exhausted": quota_exhausted
     }
 
     if isinstance(tool_res, dict):
         report_data["tool_analysis"] = tool_res
 
-    # Save to SQLite Database
+    # Save to SQLite Database (Only if valid report)
     conv_id = state.get("conversation_id") or str(uuid.uuid4())
     report_db.save_report(
         report_id=conv_id,
@@ -266,7 +334,8 @@ def report_node(state: GraphState) -> Dict[str, Any]:
     }
 
 
-# Build Report Workflow Graph (Parallel Business Tool & Research)
+
+# Build Report Workflow Graph
 report_builder = StateGraph(GraphState)
 
 report_builder.add_node("business_tool_node", business_tool_node)
@@ -284,7 +353,6 @@ report_builder.add_edge("decision_node", "report_node")
 report_builder.add_edge("report_node", END)
 
 report_workflow = report_builder.compile()
-
 
 
 # Follow-up Workflow Nodes
@@ -378,4 +446,3 @@ followup_builder.add_edge("followup_response_node", "update_memory_node")
 followup_builder.add_edge("update_memory_node", END)
 
 followup_workflow = followup_builder.compile()
-

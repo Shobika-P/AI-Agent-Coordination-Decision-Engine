@@ -20,7 +20,7 @@ function MonitoringModal({ isOpen, onClose }) {
             if (res.data?.success) {
                 setMetrics(res.data.metrics);
             }
-        } catch (err) {
+        } catch {
             setError("Failed to load telemetry metrics.");
         } finally {
             setLoading(false);
@@ -54,24 +54,23 @@ function MonitoringModal({ isOpen, onClose }) {
                     ) : (
                         <>
                             {/* QUOTA MODE STATUS CARD */}
-                            <div className={`status-banner-card ${gemini.quota_exhausted ? "warning" : "active"}`}>
+                            <div className={`status-banner-card ${gemini.status === "LIVE" ? "active" : (gemini.status === "RECOVERING" ? "info" : "warning")}`}>
                                 <div className="banner-status-icon">
-                                    {gemini.quota_exhausted ? "⚡" : "🟢"}
+                                    {gemini.status === "LIVE" ? "🟢" : (gemini.status === "RECOVERING" ? "🔄" : "⚡")}
                                 </div>
                                 <div className="banner-status-text">
-                                    <h4>{gemini.mode || "LIVE GEMINI API"}</h4>
+                                    <h4>{gemini.mode || "LIVE"}</h4>
                                     <p>
-                                        {gemini.quota_exhausted
-                                            ? "AI quota temporarily unavailable. Cached analysis or demo mode is being used automatically."
-                                            : "All requests routed through Centralized Gemini Client with rate limit shielding."}
+                                        Model Chain: <strong>{(gemini.model_chain || [gemini.primary_model || "gemini-3.7-flash"]).join(" → ")}</strong> | Circuit State: <strong>{gemini.circuit_state || "CLOSED"}</strong>
                                     </p>
                                 </div>
                             </div>
 
+
                             {/* TELEMETRY METRICS GRID */}
                             <div className="telemetry-grid">
                                 <div className="metric-card-box">
-                                    <small>GEMINI REQUESTS</small>
+                                    <small>LIVE LLM CALLS</small>
                                     <h3>{gemini.gemini_requests || 0}</h3>
                                 </div>
 
@@ -81,12 +80,12 @@ function MonitoringModal({ isOpen, onClose }) {
                                 </div>
 
                                 <div className="metric-card-box">
-                                    <small>CACHE HIT RATE</small>
-                                    <h3>{gemini.cache_hit_rate_pct || 0}%</h3>
+                                    <small>FALLBACK RESPONSES</small>
+                                    <h3>{gemini.fallback_responses || 0}</h3>
                                 </div>
 
                                 <div className="metric-card-box">
-                                    <small>AVG RESPONSE TIME</small>
+                                    <small>AVG LATENCY</small>
                                     <h3>{gemini.average_response_sec || 0} s</h3>
                                 </div>
                             </div>

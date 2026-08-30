@@ -17,15 +17,21 @@ from tools.profit_tool import calculate_profit
 
 app = Flask(__name__)
 
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-CORS(app, origins=allowed_origins)
+# Production-safe CORS configuration
+allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "*")
+allowed_origins = [orig.strip() for orig in allowed_origins_raw.split(",") if orig.strip()]
+if "*" in allowed_origins or not allowed_origins:
+    CORS(app, resources={r"/*": {"origins": "*"}})
+else:
+    CORS(app, resources={r"/*": {"origins": allowed_origins}})
 
 memory = SharedMemory()
 
-# Query Cache & Concurrent Request Deduplication Locks
+# In-Memory Exact Query Cache & Concurrent Request Deduplication Locks
 report_cache = {}  # norm_query -> dict response payload
 active_report_requests = {}  # norm_query -> (threading.Event, holder_dict)
 report_lock = threading.Lock()
+
 
 def _normalize_query(task: str) -> str:
     return re.sub(r'\s+', ' ', (task or "").strip().lower())
@@ -34,13 +40,22 @@ def _normalize_query(task: str) -> str:
 @app.route("/", methods=["GET"])
 @app.route("/health", methods=["GET"])
 def health_check():
+    telemetry = gemini_client.get_telemetry_metrics()
+    status = telemetry.get("status", "LIVE")
+
     return jsonify({
-        "status": "ok",
+        "status": status,
+        "mode": status,
         "service": "Enterprise AI Business Decision Engine",
-        "model": os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
+        "primary_model": telemetry.get("primary_model", os.getenv("GEMINI_MODEL", "gemini-3.7-flash")),
+        "fallback_model": telemetry.get("fallback_model", os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")),
+        "lightweight_model": telemetry.get("lightweight_model", os.getenv("GEMINI_LIGHTWEIGHT_MODEL", "gemini-3.5-flash-lite")),
+        "model_chain": telemetry.get("model_chain", []),
         "orchestration": "LangGraph StateGraph",
         "storage": "SQLite Persistent Database",
-        "quota_status": "demo_fallback" if gemini_client.quota_exhausted else "active"
+        "gemini_available": telemetry.get("gemini_available", False),
+        "circuit_state": telemetry.get("circuit_state", "CLOSED"),
+        "quota_exhausted": telemetry.get("quota_exhausted", False)
     }), 200
 
 
@@ -65,6 +80,7 @@ def generate_report():
     data = request.get_json(silent=True) or {}
     task = data.get("task", "").strip()
     conversation_id = data.get("conversation_id") or str(uuid.uuid4())
+    force_refresh = bool(data.get("force_refresh", False))
 
     if not task:
         return jsonify({
@@ -74,48 +90,21 @@ def generate_report():
 
     norm_query = _normalize_query(task)
 
-    # 1. Check In-Memory Query Cache
-    with report_lock:
-        if norm_query in report_cache:
-            print(f"[Report Cache HIT] Returning cached report for query: '{task}'")
-            cached_payload = dict(report_cache[norm_query])
-            cached_payload["conversation_id"] = conversation_id
-            return jsonify(cached_payload), 200
+    # 1. Check In-Memory Exact Query Cache (Only genuine live responses are cached)
+    if not force_refresh:
+        with report_lock:
+            if norm_query in report_cache:
+                print(f"[Report Cache HIT] Returning cached report for query: '{task}'")
+                cached_payload = json.loads(json.dumps(report_cache[norm_query]))
+                cached_payload["conversation_id"] = conversation_id
+                if isinstance(cached_payload.get("report"), dict):
+                    cached_payload["report"]["analysis_source"] = "LIVE_CACHE"
+                return jsonify(cached_payload), 200
 
-    # 2. Check Database for Existing Match
-    existing_reports = report_db.list_reports(search=task)
-    if existing_reports:
-        for rep in existing_reports:
-            if _normalize_query(rep.get("original_question", "")) == norm_query:
-                full_rep = report_db.get_report(rep["report_id"])
-                if full_rep and full_rep.get("report_data"):
-                    print(f"[Report DB Cache HIT] Found existing report in DB for query: '{task}'")
-                    db_payload = {
-                        "success": True,
-                        "task": task,
-                        "conversation_id": conversation_id,
-                        "report": full_rep["report_data"],
-                        "workflow": {
-                            "status": "completed",
-                            "agent_statuses": {
-                                "tool": "COMPLETED",
-                                "research": "COMPLETED",
-                                "planning": "COMPLETED",
-                                "decision": "COMPLETED",
-                                "report": "COMPLETED"
-                            },
-                            "metrics": full_rep["report_data"].get("execution_metrics", {})
-                        },
-                        "quota_notice": "AI quota temporarily unavailable. Cached analysis or demo mode is being used." if gemini_client.quota_exhausted else None
-                    }
-                    with report_lock:
-                        report_cache[norm_query] = db_payload
-                    return jsonify(db_payload), 200
-
-    # 3. Concurrent Request Deduplication
+    # 2. Concurrent Request Deduplication (Join in-flight execution if identical)
     need_wait = False
     with report_lock:
-        if norm_query in active_report_requests:
+        if not force_refresh and norm_query in active_report_requests:
             event, holder = active_report_requests[norm_query]
             print(f"[Concurrent Request DEDUPLICATED] Waiting for active workflow: '{task}'")
             need_wait = True
@@ -129,20 +118,22 @@ def generate_report():
         event.wait(timeout=60.0)
         res_data = holder.get("response_data")
         if res_data:
-            res_payload = dict(res_data[0])
+            res_payload = json.loads(json.dumps(res_data[0]))
             res_payload["conversation_id"] = conversation_id
             return jsonify(res_payload), res_data[1]
 
-    # 4. Execute LangGraph Workflow
+    # 3. Execute LangGraph Workflow
     try:
         print("\n" + "=" * 60)
-        print(f"LANGGRAPH MULTI-AGENT ENGINE [ID: {conversation_id}]")
+        print(f"LANGGRAPH MULTI-AGENT ENGINE [ID: {conversation_id}] (force_refresh={force_refresh})")
         print("=" * 60)
         print("Query:", task)
 
         initial_state = {
             "task": task,
             "conversation_id": conversation_id,
+            "force_refresh": force_refresh,
+            "selected_tool": None,
             "conversation_history": [],
             "research_result": None,
             "planning_result": None,
@@ -166,7 +157,50 @@ def generate_report():
         final_state = report_workflow.invoke(initial_state)
 
         report = final_state.get("final_report")
-        agent_statuses = final_state.get("agent_statuses")
+        agent_statuses = final_state.get("agent_statuses") or {}
+        workflow_status = final_state.get("workflow_status", "completed")
+
+        # Check if AI analysis failed or was unavailable
+        if not report or (isinstance(report, dict) and report.get("success") is False):
+            err_status = report.get("status", "temporary_ai_unavailable") if isinstance(report, dict) else "temporary_ai_unavailable"
+            err_msg = report.get("message") if isinstance(report, dict) and report.get("message") else "The AI analysis service is temporarily busy. Please try again in a moment."
+            retry_sec = report.get("retry_after_seconds", 15) if isinstance(report, dict) else 15
+            raw_err = report.get("error") if isinstance(report, dict) else "AI service unavailable"
+
+            if err_status == "rate_limited" or gemini_client.quota_exhausted:
+                http_code = 429
+                err_payload = {
+                    "success": False,
+                    "status": "rate_limited",
+                    "message": "AI request rate limit reached. Please wait a moment before retrying.",
+                    "retry_after_seconds": 30,
+                    "error": raw_err
+                }
+            elif err_status == "configuration_error" or not gemini_client.gemini_available:
+                http_code = 500
+                err_payload = {
+                    "success": False,
+                    "status": "configuration_error",
+                    "message": "Gemini API configuration or authentication error. Please check your API key.",
+                    "retry_after_seconds": None,
+                    "error": raw_err
+                }
+            else:
+                http_code = 503
+                err_payload = {
+                    "success": False,
+                    "status": "temporary_ai_unavailable",
+                    "message": err_msg,
+                    "retry_after_seconds": retry_sec,
+                    "error": raw_err
+                }
+
+            with report_lock:
+                holder["response_data"] = (err_payload, http_code)
+                event.set()
+                active_report_requests.pop(norm_query, None)
+
+            return jsonify(err_payload), http_code
 
         print("\n[LangGraph] Workflow Completed Successfully.")
 
@@ -176,18 +210,15 @@ def generate_report():
             "conversation_id": conversation_id,
             "report": report,
             "workflow": {
-                "status": final_state.get("workflow_status", "completed"),
+                "status": "completed",
                 "agent_statuses": agent_statuses,
                 "metrics": final_state.get("execution_metrics")
-            },
-            "quota_notice": "AI quota temporarily unavailable. Cached analysis or demo mode is being used." if gemini_client.quota_exhausted else None
+            }
         }
 
-        if report:
-            with report_lock:
-                report_cache[norm_query] = response_payload
-
+        # Cache ONLY genuine successful live reports
         with report_lock:
+            report_cache[norm_query] = response_payload
             holder["response_data"] = (response_payload, 200)
             event.set()
             active_report_requests.pop(norm_query, None)
@@ -200,16 +231,18 @@ def generate_report():
 
         err_payload = {
             "success": False,
-            "error": f"Analysis system warning: {err_str}",
-            "quota_notice": "AI quota temporarily unavailable. Cached analysis or demo mode is being used."
+            "status": "temporary_ai_unavailable",
+            "message": "The AI analysis service is temporarily busy. Please try again in a moment.",
+            "retry_after_seconds": 15,
+            "error": err_str
         }
 
         with report_lock:
-            holder["response_data"] = (err_payload, 200)
+            holder["response_data"] = (err_payload, 503)
             event.set()
             active_report_requests.pop(norm_query, None)
 
-        return jsonify(err_payload), 200
+        return jsonify(err_payload), 503
 
 
 
@@ -251,6 +284,8 @@ def follow_up():
         followup_initial_state = {
             "task": original_task,
             "conversation_id": conversation_id,
+            "force_refresh": False,
+            "selected_tool": None,
             "conversation_history": existing_session.get("conversation_history", []) if existing_session else [],
             "research_result": None,
             "planning_result": None,
@@ -284,13 +319,11 @@ def follow_up():
         err_str = str(e)
         print("\n[LangGraph ERROR] Processing Follow-up:", repr(e))
 
-        # Always return structured answer fallback so page never blanks out
         return jsonify({
-            "success": True,
-            "answer": f"Analysis note: {err_str}. Based on current financial tool estimates, maintaining lean operational expenses optimizes break-even timelines.",
-            "conversation_id": conversation_id,
-            "workflow_status": "completed_fallback"
-        }), 200
+            "success": False,
+            "error": f"Failed to process follow-up: {err_str}",
+            "conversation_id": conversation_id
+        }), 500
 
 
 def format_inr(val, include_symbol=True):
@@ -302,12 +335,12 @@ def format_inr(val, include_symbol=True):
             s = f"{int(val)}"
         else:
             s = f"{val:,.2f}"
-            
+
         if '.' in s:
             int_part, dec_part = s.split('.')
         else:
             int_part, dec_part = s, None
-            
+
         int_part = int_part.replace(',', '')
         if len(int_part) > 3:
             last3 = int_part[-3:]
@@ -319,11 +352,11 @@ def format_inr(val, include_symbol=True):
             formatted_int = other + res + "," + last3
         else:
             formatted_int = int_part
-            
+
         final_num = f"{formatted_int}.{dec_part}" if dec_part else formatted_int
         prefix = "-₹" if is_neg else ("₹" if include_symbol else "")
         return f"{prefix}{final_num}"
-    except:
+    except Exception:
         return f"₹{val}" if include_symbol else str(val)
 
 
@@ -348,7 +381,7 @@ def what_if_analysis():
         monthly_variable = variable_cost * monthly_orders
         total_monthly_cost = fixed_cost + monthly_variable + marketing_cost
         monthly_profit = revenue - total_monthly_cost
-        
+
         # Break-even units
         unit_margin = price - variable_cost
         be_units = round(fixed_cost / unit_margin) if unit_margin > 0 else 999999
@@ -365,7 +398,7 @@ def what_if_analysis():
 
         explanation = (
             f"At {format_inr(price)} unit price and {format_inr(monthly_orders, include_symbol=False)} monthly orders, projected monthly revenue is {format_inr(revenue)}. "
-            f"After accounting for monthly fixed cost ({format_inr(fixed_cost)}), variable costs ({format_inr(monthly_variable)}), and marketing ({format_inr(marketing_cost)}), "
+            f"After accounting for monthly fixed overhead ({format_inr(fixed_cost)}), variable expenses ({format_inr(monthly_variable)}), and marketing ({format_inr(marketing_cost)}), "
             f"the projected monthly net profit is {format_inr(monthly_profit)} with a break-even point of {format_inr(be_units, include_symbol=False)} units."
         )
 
@@ -422,7 +455,9 @@ def get_single_report(report_id):
 def delete_single_report(report_id):
     try:
         ok = report_db.delete_report(report_id)
-        return jsonify({"success": ok}), 200
+        if not ok:
+            return jsonify({"success": False, "error": "Report not found or could not be deleted"}), 404
+        return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -439,7 +474,7 @@ def compare_reports():
         r2 = report_db.get_report(id2)
 
         if not r1 or not r2:
-            return jsonify({"success": False, "error": "One or both reports could not be found."}), 444
+            return jsonify({"success": False, "error": "One or both reports could not be found."}), 404
 
         return jsonify({
             "success": True,
@@ -456,7 +491,7 @@ def rerun_decision_stage():
         data = request.get_json(silent=True) or {}
         task = data.get("task", "")
         report_id = data.get("report_id") or str(uuid.uuid4())
-        
+
         price = float(data.get("price", 500))
         monthly_orders = float(data.get("monthly_orders", 150))
         marketing_cost = float(data.get("marketing_cost", 10000))
@@ -494,15 +529,14 @@ def rerun_decision_stage():
 
         # 2. Fetch or load research and planning context
         existing_report = report_db.get_report(report_id)
-        research_context = data.get("research_result") or "Market demand is strong with price sensitive segment."
-        planning_context = data.get("planning_result") or "Phase 1: MVP Setup. Phase 2: Customer Acquisition. Phase 3: Scale."
-        
+        research_context = {"executive_summary": "Market demand validated for segment."}
+        planning_context = []
+
         if existing_report and existing_report.get("report_data"):
             r_data = existing_report["report_data"]
-            if r_data.get("research_summary"):
-                research_context = json.dumps(r_data["research_summary"])
-            if r_data.get("business_plan"):
-                planning_context = json.dumps(r_data["business_plan"])
+            if isinstance(r_data, dict):
+                research_context = r_data
+                planning_context = r_data.get("implementation_roadmap", [])
 
         # 3. Re-run Decision Agent with modified assumptions
         from agents.decision_agent import decision_agent
@@ -529,7 +563,13 @@ def rerun_decision_stage():
             "why_this_decision": new_decision.get("why_this_decision", []) if isinstance(new_decision, dict) else [],
             "key_risks": new_decision.get("key_risks", []) if isinstance(new_decision, dict) else [],
             "key_opportunities": new_decision.get("key_opportunities", []) if isinstance(new_decision, dict) else [],
-            "tool_analysis": updated_tool_result
+            "recommended_decision": new_decision.get("recommended_decision", ""),
+            "implementation_roadmap": new_decision.get("implementation_roadmap", planning_context),
+            "success_metrics": new_decision.get("success_metrics", []),
+            "conditions_and_assumptions": new_decision.get("conditions_and_assumptions", []),
+            "conclusion": new_decision.get("conclusion", ""),
+            "tool_analysis": updated_tool_result,
+            "analysis_source": "LIVE_AI"
         }
 
         report_db.save_report(
@@ -548,7 +588,6 @@ def rerun_decision_stage():
     except Exception as e:
         print("Error re-running decision agent:", e)
         return jsonify({"success": False, "error": str(e)}), 500
-
 
 
 # ============================================================
@@ -593,7 +632,7 @@ def export_report():
             risk = str(report.get("risk_level", "Medium"))
             viability = report.get("viability_score", 78)
             confidence = report.get("confidence", 82)
-            
+
             md_content = f"# Executive Strategic Decision Report\n\n**Query:** {task}\n**Risk Level:** {risk}\n**Viability Score:** {viability}/100\n**AI Confidence:** {confidence}%\n\n---\n\n## Executive Summary\n\n{decision_text}\n"
 
             if history:
@@ -617,7 +656,7 @@ def export_report():
 
 
 # ============================================================
-# GET DECISION HISTORY (SQLITE SOURCE OF TRUTH)
+# GET DECISION HISTORY
 # ============================================================
 
 @app.route("/history", methods=["GET"])
@@ -628,7 +667,6 @@ def get_history():
             "success": True,
             "history": reports
         }), 200
-
     except Exception as e:
         print("\nERROR RETRIEVING HISTORY:", e)
         return jsonify({
@@ -639,8 +677,10 @@ def get_history():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
+    debug_mode = os.getenv("FLASK_DEBUG", "false").lower() in ("true", "1")
+    host = os.getenv("HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1")
     app.run(
-        debug=True,
-        host="0.0.0.0" if os.getenv("PORT") else "127.0.0.1",
+        debug=debug_mode,
+        host=host,
         port=port
     )

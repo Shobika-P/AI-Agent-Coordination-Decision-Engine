@@ -1,4 +1,37 @@
-venv/
-__pycache__/
-*.pyc
+# Environment & Secrets
 .env
+.env.*
+!.env.example
+
+# Python Virtual Environments & Bytecode
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node / Frontend Build Artifacts
+node_modules/
+dist/
+build/
+.npm/
+
+# SQLite & Persistent Databases
+*.db
+*.sqlite
+*.sqlite3
+memory/*.db
+memory/*.sqlite
+
+# Generated Documents & Scratch
+*.pdf
+scratch/
+.pytest_cache/
+.coverage
+
+# IDE & OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

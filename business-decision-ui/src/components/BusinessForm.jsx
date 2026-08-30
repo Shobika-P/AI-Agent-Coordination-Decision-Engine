@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 
 function BusinessForm({ onGenerate, loading, initialTask }) {
     const [taskInput, setTaskInput] = useState(initialTask || "");
+    const [forceRefresh, setForceRefresh] = useState(false);
 
     useEffect(() => {
         if (initialTask) {
@@ -19,7 +20,7 @@ function BusinessForm({ onGenerate, loading, initialTask }) {
     const handleSubmit = (e) => {
         if (e) e.preventDefault();
         if (!taskInput.trim() || loading) return;
-        onGenerate(taskInput.trim());
+        onGenerate(taskInput.trim(), forceRefresh);
     };
 
     return (
@@ -60,20 +61,33 @@ function BusinessForm({ onGenerate, loading, initialTask }) {
                         ))}
                     </div>
 
-                    <button
-                        type="submit"
-                        className="btn-submit-decision"
-                        disabled={loading || !taskInput.trim()}
-                    >
-                        {loading ? (
-                            <span className="btn-loading">
-                                <span className="spinner-dot"></span>
-                                <span>Analyzing Business Decision...</span>
-                            </span>
-                        ) : (
-                            <span>Run Decision Engine →</span>
-                        )}
-                    </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", color: "var(--text-secondary, #9ca3af)", cursor: "pointer", userSelect: "none" }}>
+                            <input
+                                type="checkbox"
+                                checked={forceRefresh}
+                                onChange={(e) => setForceRefresh(e.target.checked)}
+                                disabled={loading}
+                                style={{ cursor: "pointer" }}
+                            />
+                            <span>Force Fresh AI</span>
+                        </label>
+
+                        <button
+                            type="submit"
+                            className="btn-submit-decision"
+                            disabled={loading || !taskInput.trim()}
+                        >
+                            {loading ? (
+                                <span className="btn-loading">
+                                    <span className="spinner-dot"></span>
+                                    <span>Analyzing Business Decision...</span>
+                                </span>
+                            ) : (
+                                <span>Run Decision Engine →</span>
+                            )}
+                        </button>
+                    </div>
                 </div>
             </form>
         </section>
