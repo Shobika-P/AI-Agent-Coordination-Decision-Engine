@@ -33,6 +33,7 @@ def merge_list(a: Optional[List[Any]], b: Optional[List[Any]]) -> List[Any]:
 class GraphState(TypedDict):
     task: str
     conversation_id: str
+    user_id: Optional[str]
     force_refresh: Optional[bool]
     selected_tool: Optional[str]
     conversation_history: List[Dict[str, str]]
@@ -311,11 +312,13 @@ def report_node(state: GraphState) -> Dict[str, Any]:
 
     # Save to SQLite Database (Only if valid report)
     conv_id = state.get("conversation_id") or str(uuid.uuid4())
+    user_id = state.get("user_id")
     report_db.save_report(
         report_id=conv_id,
         original_question=task,
         report_data=report_data,
-        conversation_history=state.get("conversation_history") or []
+        conversation_history=state.get("conversation_history") or [],
+        user_id=user_id
     )
 
     session_data = {
@@ -424,7 +427,7 @@ def update_memory_node(state: GraphState) -> Dict[str, Any]:
         session = memory.load_session(conv_id) or {}
         session["conversation_history"] = history
         memory.save_session(conv_id, session)
-        report_db.update_conversation(conv_id, history)
+        report_db.update_conversation(conv_id, history, user_id=state.get("user_id"))
 
     return {
         "conversation_history": history,

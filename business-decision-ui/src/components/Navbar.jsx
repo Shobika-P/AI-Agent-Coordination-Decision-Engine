@@ -1,4 +1,4 @@
-function Navbar({ onOpenLibrary, onOpenMonitoring, quotaStatus }) {
+function Navbar({ onOpenLibrary, onOpenMonitoring, quotaStatus, currentUser, onLogout }) {
     let pillClass = "green";
     let pillText = "GEMINI API LIVE";
 
@@ -18,7 +18,6 @@ function Navbar({ onOpenLibrary, onOpenMonitoring, quotaStatus }) {
         pillClass = "blue";
         pillText = "SYSTEM ONLINE";
     }
-
 
     return (
         <header className="navbar-container">
@@ -51,6 +50,22 @@ function Navbar({ onOpenLibrary, onOpenMonitoring, quotaStatus }) {
                 >
                     📊 System Status
                 </button>
+
+                {currentUser && (
+                    <div className="nav-user-group">
+                        <span className="nav-user-badge" title={currentUser.email}>
+                            👤 <span className="nav-user-email">{currentUser.email}</span>
+                        </span>
+                        <button
+                            type="button"
+                            className="btn-nav-action logout-btn"
+                            onClick={onLogout}
+                            title="Sign out of your account"
+                        >
+                            Sign Out
+                        </button>
+                    </div>
+                )}
             </div>
         </header>
     );

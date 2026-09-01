@@ -11,6 +11,7 @@ from utils.pdf_generator import generate_decision_pdf
 from memory.shared_memory import SharedMemory
 from memory.report_db import report_db
 from utils.gemini_client import gemini_client
+from utils.auth_helper import generate_auth_token, verify_auth_token, require_auth, optional_auth, get_authenticated_user
 from tools.market_risk_tool import market_risk
 from tools.break_even_tool import calculate_break_even
 from tools.profit_tool import calculate_profit
@@ -72,15 +73,131 @@ def get_monitoring():
 
 
 # ============================================================
+# USER AUTHENTICATION API ROUTES
+# ============================================================
+
+@app.route("/register", methods=["POST"])
+@app.route("/auth/register", methods=["POST"])
+def register():
+    try:
+        data = request.get_json(silent=True) or {}
+        email = data.get("email", "").strip()
+        password = data.get("password", "")
+
+        if not email or not password:
+            return jsonify({
+                "success": False,
+                "error": "Email and password are required."
+            }), 400
+
+        if len(password) < 6:
+            return jsonify({
+                "success": False,
+                "error": "Password must be at least 6 characters long."
+            }), 400
+
+        user = report_db.create_user(email=email, password=password)
+        token = generate_auth_token(user["id"], user["email"])
+
+        return jsonify({
+            "success": True,
+            "message": "User registered successfully.",
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user["email"]
+            }
+        }), 201
+
+    except ValueError as ve:
+        return jsonify({
+            "success": False,
+            "error": str(ve)
+        }), 400
+    except Exception as e:
+        print("[Register ERROR]:", repr(e))
+        return jsonify({
+            "success": False,
+            "error": "Failed to complete registration."
+        }), 500
+
+
+@app.route("/login", methods=["POST"])
+@app.route("/auth/login", methods=["POST"])
+def login():
+    try:
+        data = request.get_json(silent=True) or {}
+        email = data.get("email", "").strip()
+        password = data.get("password", "")
+
+        if not email or not password:
+            return jsonify({
+                "success": False,
+                "error": "Email and password are required."
+            }), 400
+
+        user = report_db.authenticate_user(email=email, password=password)
+        if not user:
+            return jsonify({
+                "success": False,
+                "error": "Invalid email or password."
+            }), 401
+
+        token = generate_auth_token(user["id"], user["email"])
+
+        return jsonify({
+            "success": True,
+            "message": "Logged in successfully.",
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user["email"]
+            }
+        }), 200
+
+    except Exception as e:
+        print("[Login ERROR]:", repr(e))
+        return jsonify({
+            "success": False,
+            "error": "Authentication failed. Please try again."
+        }), 500
+
+
+@app.route("/logout", methods=["POST"])
+@app.route("/auth/logout", methods=["POST"])
+def logout():
+    return jsonify({
+        "success": True,
+        "message": "Logged out successfully."
+    }), 200
+
+
+@app.route("/auth/me", methods=["GET"])
+@require_auth
+def get_current_authenticated_user():
+    user = request.user
+    return jsonify({
+        "success": True,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "created_at": user.get("created_at")
+        }
+    }), 200
+
+
+# ============================================================
 # LANGGRAPH REPORT GENERATION
 # ============================================================
 
 @app.route("/generate-report", methods=["POST"])
+@optional_auth
 def generate_report():
     data = request.get_json(silent=True) or {}
     task = data.get("task", "").strip()
     conversation_id = data.get("conversation_id") or str(uuid.uuid4())
     force_refresh = bool(data.get("force_refresh", False))
+    user_id = getattr(request, "user_id", None)
 
     if not task:
         return jsonify({
@@ -99,6 +216,14 @@ def generate_report():
                 cached_payload["conversation_id"] = conversation_id
                 if isinstance(cached_payload.get("report"), dict):
                     cached_payload["report"]["analysis_source"] = "LIVE_CACHE"
+                    if user_id:
+                        report_db.save_report(
+                            report_id=conversation_id,
+                            original_question=task,
+                            report_data=cached_payload["report"],
+                            conversation_history=[],
+                            user_id=user_id
+                        )
                 return jsonify(cached_payload), 200
 
     # 2. Concurrent Request Deduplication (Join in-flight execution if identical)
@@ -120,18 +245,27 @@ def generate_report():
         if res_data:
             res_payload = json.loads(json.dumps(res_data[0]))
             res_payload["conversation_id"] = conversation_id
+            if user_id and isinstance(res_payload.get("report"), dict):
+                report_db.save_report(
+                    report_id=conversation_id,
+                    original_question=task,
+                    report_data=res_payload["report"],
+                    conversation_history=[],
+                    user_id=user_id
+                )
             return jsonify(res_payload), res_data[1]
 
     # 3. Execute LangGraph Workflow
     try:
         print("\n" + "=" * 60)
-        print(f"LANGGRAPH MULTI-AGENT ENGINE [ID: {conversation_id}] (force_refresh={force_refresh})")
+        print(f"LANGGRAPH MULTI-AGENT ENGINE [ID: {conversation_id}] (force_refresh={force_refresh}, user_id={user_id})")
         print("=" * 60)
         print("Query:", task)
 
         initial_state = {
             "task": task,
             "conversation_id": conversation_id,
+            "user_id": user_id,
             "force_refresh": force_refresh,
             "selected_tool": None,
             "conversation_history": [],
@@ -251,6 +385,7 @@ def generate_report():
 # ============================================================
 
 @app.route("/follow-up", methods=["POST"])
+@optional_auth
 def follow_up():
     try:
         data = request.get_json(silent=True) or {}
@@ -259,6 +394,7 @@ def follow_up():
         conversation_id = data.get("conversation_id")
         original_task = data.get("original_task", "")
         report = data.get("report")
+        user_id = getattr(request, "user_id", None)
 
         if not question:
             return jsonify({
@@ -284,6 +420,7 @@ def follow_up():
         followup_initial_state = {
             "task": original_task,
             "conversation_id": conversation_id,
+            "user_id": user_id,
             "force_refresh": False,
             "selected_tool": None,
             "conversation_history": existing_session.get("conversation_history", []) if existing_session else [],
@@ -430,20 +567,24 @@ def what_if_analysis():
 # ============================================================
 
 @app.route("/reports", methods=["GET"])
+@require_auth
 def get_reports_library():
     try:
         search = request.args.get("search", "").strip()
         risk_filter = request.args.get("risk", "ALL").strip()
-        reports = report_db.list_reports(search=search, risk_filter=risk_filter)
+        user_id = request.user_id
+        reports = report_db.list_reports(search=search, risk_filter=risk_filter, user_id=user_id)
         return jsonify({"success": True, "reports": reports}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/reports/<report_id>", methods=["GET"])
+@require_auth
 def get_single_report(report_id):
     try:
-        r = report_db.get_report(report_id)
+        user_id = request.user_id
+        r = report_db.get_report(report_id, user_id=user_id)
         if not r:
             return jsonify({"success": False, "error": "Report not found"}), 404
         return jsonify({"success": True, "report": r}), 200
@@ -452,9 +593,11 @@ def get_single_report(report_id):
 
 
 @app.route("/reports/<report_id>", methods=["DELETE"])
+@require_auth
 def delete_single_report(report_id):
     try:
-        ok = report_db.delete_report(report_id)
+        user_id = request.user_id
+        ok = report_db.delete_report(report_id, user_id=user_id)
         if not ok:
             return jsonify({"success": False, "error": "Report not found or could not be deleted"}), 404
         return jsonify({"success": True}), 200
@@ -463,6 +606,7 @@ def delete_single_report(report_id):
 
 
 @app.route("/reports/compare", methods=["GET"])
+@require_auth
 def compare_reports():
     try:
         id1 = request.args.get("id1", "").strip()
@@ -470,8 +614,9 @@ def compare_reports():
         if not id1 or not id2:
             return jsonify({"success": False, "error": "Two report IDs are required for comparison."}), 400
 
-        r1 = report_db.get_report(id1)
-        r2 = report_db.get_report(id2)
+        user_id = request.user_id
+        r1 = report_db.get_report(id1, user_id=user_id)
+        r2 = report_db.get_report(id2, user_id=user_id)
 
         if not r1 or not r2:
             return jsonify({"success": False, "error": "One or both reports could not be found."}), 404
@@ -486,11 +631,13 @@ def compare_reports():
 
 
 @app.route("/re-run-decision", methods=["POST"])
+@require_auth
 def rerun_decision_stage():
     try:
         data = request.get_json(silent=True) or {}
         task = data.get("task", "")
         report_id = data.get("report_id") or str(uuid.uuid4())
+        user_id = request.user_id
 
         price = float(data.get("price", 500))
         monthly_orders = float(data.get("monthly_orders", 150))
@@ -528,7 +675,7 @@ def rerun_decision_stage():
         }
 
         # 2. Fetch or load research and planning context
-        existing_report = report_db.get_report(report_id)
+        existing_report = report_db.get_report(report_id, user_id=user_id)
         research_context = {"executive_summary": "Market demand validated for segment."}
         planning_context = []
 
@@ -576,7 +723,8 @@ def rerun_decision_stage():
             report_id=report_id,
             original_question=task,
             report_data=updated_report_data,
-            conversation_history=existing_report.get("conversation_history", []) if existing_report else []
+            conversation_history=existing_report.get("conversation_history", []) if existing_report else [],
+            user_id=user_id
         )
 
         return jsonify({
@@ -595,6 +743,7 @@ def rerun_decision_stage():
 # ============================================================
 
 @app.route("/export-report", methods=["POST"])
+@optional_auth
 def export_report():
     try:
         data = request.get_json(silent=True) or {}
@@ -602,6 +751,13 @@ def export_report():
         report = data.get("report") or {}
         task = data.get("task", "Business Decision Query")
         history = data.get("conversation_history", [])
+        report_id = data.get("report_id")
+        user_id = getattr(request, "user_id", None)
+
+        if report_id and user_id:
+            db_rep = report_db.get_report(report_id, user_id=user_id)
+            if not db_rep:
+                return jsonify({"success": False, "error": "Report not found"}), 404
 
         if export_format == "pdf":
             pdf_bytes = generate_decision_pdf(report, task, history)
@@ -660,9 +816,14 @@ def export_report():
 # ============================================================
 
 @app.route("/history", methods=["GET"])
+@optional_auth
 def get_history():
     try:
-        reports = report_db.list_reports()
+        user_id = getattr(request, "user_id", None)
+        if user_id:
+            reports = report_db.list_reports(user_id=user_id)
+        else:
+            reports = report_db.list_reports(include_all=True)
         return jsonify({
             "success": True,
             "history": reports

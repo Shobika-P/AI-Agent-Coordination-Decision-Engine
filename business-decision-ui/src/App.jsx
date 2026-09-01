@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import API from "./services/api";
+import API, { authService } from "./services/api";
 
 import Navbar from "./components/Navbar";
 import BusinessForm from "./components/BusinessForm";
@@ -7,8 +7,12 @@ import WorkflowVisualizer from "./components/WorkflowVisualizer";
 import ReportViewer from "./components/ReportViewer";
 import ReportLibraryModal from "./components/ReportLibraryModal";
 import MonitoringModal from "./components/MonitoringModal";
+import AuthScreen from "./components/AuthScreen";
 
 function App() {
+    const [currentUser, setCurrentUser] = useState(null);
+    const [authChecking, setAuthChecking] = useState(true);
+
     const [report, setReport] = useState(null);
     const [businessTask, setBusinessTask] = useState("");
     const [conversationId, setConversationId] = useState(null);
@@ -35,8 +39,49 @@ function App() {
     const [followupMessages, setFollowupMessages] = useState([]);
 
     useEffect(() => {
+        checkAuth();
         checkHealth();
     }, []);
+
+    const checkAuth = async () => {
+        const token = authService.getToken();
+        if (!token) {
+            setCurrentUser(null);
+            setAuthChecking(false);
+            return;
+        }
+
+        try {
+            const res = await authService.getMe();
+            if (res.data?.success && res.data?.user) {
+                setCurrentUser(res.data.user);
+            } else {
+                authService.removeToken();
+                setCurrentUser(null);
+            }
+        } catch {
+            authService.removeToken();
+            setCurrentUser(null);
+        } finally {
+            setAuthChecking(false);
+        }
+    };
+
+    const handleLogout = async () => {
+        await authService.logout();
+        setCurrentUser(null);
+        setReport(null);
+        setBusinessTask("");
+        setFollowupMessages([]);
+        setConversationId(null);
+        setAgentStatuses({
+            tool: "WAITING",
+            research: "WAITING",
+            planning: "WAITING",
+            decision: "WAITING",
+            report: "WAITING"
+        });
+    };
 
     const checkHealth = async () => {
         try {
@@ -238,12 +283,38 @@ function App() {
         }
     };
 
+    if (authChecking) {
+        return (
+            <div className="auth-loading-screen">
+                <div className="auth-loading-card">
+                    <span className="mini-spinner large"></span>
+                    <p>Connecting to Decision Automation System...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!currentUser) {
+        return (
+            <AuthScreen
+                onAuthSuccess={(user) => {
+                    setCurrentUser(user);
+                    setBusinessTask("");
+                    setReport(null);
+                    setFollowupMessages([]);
+                }}
+            />
+        );
+    }
+
     return (
         <div className="app-shell">
             <Navbar
                 onOpenLibrary={() => setShowLibrary(true)}
                 onOpenMonitoring={() => setShowMonitoring(true)}
                 quotaStatus={quotaNotice ? "demo" : apiStatus}
+                currentUser={currentUser}
+                onLogout={handleLogout}
             />
 
             <main className="app-container">

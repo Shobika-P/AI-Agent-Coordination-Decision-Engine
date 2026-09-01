@@ -57,16 +57,17 @@ class SharedMemory:
     # Persistent History Bridge
     # ------------------------
 
-    def add_history(self, task, decision, risk_level="Medium", report_data=None, conversation_id=None):
+    def add_history(self, task, decision, risk_level="Medium", report_data=None, conversation_id=None, user_id=None):
         report_data = report_data or {"decision": decision, "risk_level": risk_level}
         return self.report_db.save_report(
             report_id=conversation_id,
             original_question=task,
-            report_data=report_data
+            report_data=report_data,
+            user_id=user_id
         )
 
-    def get_history(self):
-        return self.report_db.list_reports()
+    def get_history(self, user_id=None, include_all=False):
+        return self.report_db.list_reports(user_id=user_id, include_all=include_all)
 
     # ------------------------
     # Monitoring Telemetry Metrics
